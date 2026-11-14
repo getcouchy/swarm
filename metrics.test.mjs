@@ -1,0 +1,54 @@
+// node --test
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { METRICS, push, registry } from './metrics.mjs';
+
+test('render: help, type, escaped labels', () => {
+  const r = registry();
+  r.set('swarm_agent_last_tick_timestamp_seconds', { agent: 'grok/1' }, 1700000000);
+  r.set('swarm_lock_age_seconds', { number: '7', agent: 'a"b\\c\nd', type: 'issue' }, 60);
+  const out = r.render();
+  assert.match(out, /# TYPE swarm_agent_last_tick_timestamp_seconds gauge\n/);
+  assert.match(out, /swarm_agent_last_tick_timestamp_seconds\{agent="grok\/1"\} 1700000000\n/);
+  assert.match(out, /agent="a\\"b\\\\c\\nd"/);
+  assert.ok(out.endsWith('\n'));
+});
+
+test('set: refuses an undefined metric or label; a repeat replaces', () => {
+  const r = registry();
+  assert.throws(() => r.set('swarm_nope', {}, 1));
+  assert.throws(() => r.set('swarm_pulls', { title: 'x' }, 1));
+  r.set('swarm_hold_total', { agent: 'codex' }, 1);
+  r.set('swarm_hold_total', { agent: 'codex' }, 2);
+  assert.equal(r.render().match(/^swarm_hold_total\{/gm).length, 1);
+  assert.match(r.render(), /# TYPE swarm_hold_total counter/);
+});
+
+test('push: PUT to the repository group; off without a url or on a dry run', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => { calls.push([url, init.method]); return { ok: true, status: 200 }; };
+  const r = registry();
+  assert.equal(await push(r, { job: 'swarm_sweep', repository: 'acme/app', url: 'http://pg:9091', dryRun: false, fetchImpl }), true);
+  assert.deepEqual(calls, [['http://pg:9091/metrics/job/swarm_sweep/repository@base64/YWNtZS9hcHA', 'PUT']]);
+  assert.equal(await push(r, { job: 'j', repository: 'a/b', url: '', dryRun: false, fetchImpl }), false);
+  assert.equal(await push(r, { job: 'j', repository: 'a/b', url: 'http://pg', dryRun: true, fetchImpl }), false);
+  assert.equal(calls.length, 1);
+});
+
+test('push: a refusal, a throw and a hang are logged, not thrown', async () => {
+  const lines = [];
+  const opts = { job: 'j', repository: 'a/b', url: 'http://pg', dryRun: false, log: (l) => lines.push(l), timeoutMs: 20 };
+  assert.equal(await push(registry(), { ...opts, fetchImpl: async () => ({ ok: false, status: 400, text: async () => 'bad' }) }), false);
+  assert.equal(await push(registry(), { ...opts, fetchImpl: async () => { throw new Error('ECONNREFUSED'); } }), false);
+  assert.equal(await push(registry(), { ...opts, fetchImpl: (u, { signal }) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(new Error('aborted')))) }), false);
+  assert.equal(lines.length, 3);
+});
+
+test('definitions: every name is swarm_*, counters end in _total', () => {
+  for (const [name, d] of Object.entries(METRICS)) {
+    assert.match(name, /^swarm_[a-z_]+$/);
+    assert.equal(d.type === 'counter', name.endsWith('_total'));
+    assert.ok(!d.labels.includes('job') && !d.labels.includes('repository'));
+  }
+  assert.equal(Object.keys(METRICS).length, 13);
+});
