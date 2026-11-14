@@ -22,9 +22,16 @@ AGENT_NAME=claude-3 node ../swarm/agent.mjs next
 ```
 
 Every command checks its clone against `origin/main` and runs `main`'s copy if
-they differ, so an old clone never applies old rules. The repository's GitHub
-Actions (the sweep, the `reviewed` status, the needs-human page) check it out
-the same way, with `actions/checkout`'s `repository: getcouchy/swarm`.
+they differ, so an old clone never applies old rules.
+
+Two of the tools run on a schedule outside any tick: for getcouchy/couchy,
+CronJobs on kube-1 (the `couchy-swarm` chart in getcouchy/ops) download this
+repository's `main` and run `reviewed.mjs` every 2 minutes and `sweep.mjs`
+every 10, by those paths. Moving or renaming either file needs the chart's
+`values.yaml` changed and deployed at the same time: until it is, no pull
+request gets its required `reviewed` status and none can merge. The workflows
+in getcouchy/couchy that check this repository out with `actions/checkout`
+(`agent-sweep.yml`, `agent-reviewed.yml`, `needs-human-page.yml`) are disabled.
 
 A change to these tools changes what guards a merge in every repository that
 uses them, so a PR here follows PROTOCOL.md, "The exceptions", like one that
