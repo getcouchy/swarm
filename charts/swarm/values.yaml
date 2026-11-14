@@ -64,4 +64,5 @@ jobs:
     ref: main
     run: [sweep.mjs]
     env: {}
-    # AGENT_CLAIM_MINUTES, AGENT_READY_HOURS... override the script's defaults.
+    # CLAIM_MINUTES, READY_HOURS, REVIEW_HOURS, FIX_HOURS, HOLD_HOURS,
+    # HEARTBEAT_HOURS: override the script's defaults.
