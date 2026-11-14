@@ -1,0 +1,88 @@
+{{- range $name, $job := .Values.jobs }}
+{{- if ne (toString $job.enabled) "false" }}
+{{- $d := $.Values.defaults }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "swarm.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  schedule: {{ $job.schedule | quote }}
+  {{- with $job.timeZone }}
+  timeZone: {{ . }}
+  {{- end }}
+  suspend: {{ $job.suspend | default false }}
+  concurrencyPolicy: {{ $job.concurrencyPolicy | default $d.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ $job.startingDeadlineSeconds | default $d.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ $d.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $d.failedJobsHistoryLimit }}
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/name: swarm
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: {{ $job.activeDeadlineSeconds | default $d.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ $d.ttlSecondsAfterFinished }}
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: swarm
+            app.kubernetes.io/component: {{ $name }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: run
+              image: {{ $.Values.image }}
+              command: ["node", "/opt/swarm/run.mjs"]
+              args:
+                {{- toYaml $job.run | nindent 16 }}
+              env:
+                - name: GITHUB_REPOSITORY
+                  value: {{ required "github.repository is required: the owner/name of the repository the jobs work on" $.Values.github.repository | quote }}
+                - name: SOURCE_REPOSITORY
+                  value: {{ $job.source | default $.Values.github.repository | quote }}
+                - name: SOURCE_REF
+                  value: {{ $job.ref | default $.Values.github.ref | quote }}
+                - name: GITHUB_SERVER_URL
+                  value: https://github.com
+                - name: HOME
+                  value: /tmp
+                - name: SWARM_APP_ID
+                  valueFrom: { secretKeyRef: { name: {{ $.Values.github.secretName }}, key: app-id } }
+                - name: SWARM_APP_KEY
+                  valueFrom: { secretKeyRef: { name: {{ $.Values.github.secretName }}, key: private-key } }
+                {{- range $k, $v := $job.env }}
+                - name: {{ $k }}
+                  value: {{ $v | quote }}
+                {{- end }}
+                {{- range $k, $v := $job.secretEnv }}
+                - name: {{ $k }}
+                  valueFrom: { secretKeyRef: { name: {{ required "extraSecretName is required when a job sets secretEnv" $.Values.extraSecretName }}, key: {{ $v }}, optional: true } }
+                {{- end }}
+              resources:
+                {{- toYaml $d.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: [ALL] }
+              volumeMounts:
+                - { name: run, mountPath: /opt/swarm, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            - name: run
+              configMap: { name: {{ $.Release.Name }}-run }
+            - name: tmp
+              emptyDir: { sizeLimit: 1Gi }
+{{- end }}
+{{- end }}

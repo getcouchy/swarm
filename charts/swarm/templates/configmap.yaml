@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-run
+  labels:
+    {{- include "swarm.labels" . | nindent 4 }}
+data:
+  run.mjs: |
+    {{- .Files.Get "files/run.mjs" | nindent 4 }}
