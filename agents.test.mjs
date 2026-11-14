@@ -8,7 +8,7 @@ import { client } from './github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from './sweep.mjs';
 import { registry } from './metrics.mjs';
 import { claim, firstJob, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
-import { report } from './reviewed.mjs';
+import { report, status } from './reviewed.mjs';
 import { likelyWork, sync, toolsStale } from './preflight.mjs';
 
 const NOW = Date.parse('2026-11-10T12:00:00Z');
@@ -386,6 +386,13 @@ test('client: remembers the rate limit left', async () => {
   assert.equal(gh.rateLimitRemaining(), null);
   await gh.labels();
   assert.equal(gh.rateLimitRemaining(), 4999);
+});
+
+test('reviewed: status returns the state it posted', async () => {
+  const gh = fake({ pulls: [pull(40, ['swarm/pr'])] });
+  const { line, state } = await status(gh, (await gh.openPulls())[0]);
+  assert.equal(state, 'pending');
+  assert.match(line, /^#40: pending/);
 });
 
 test('pullState: first match wins', () => {
