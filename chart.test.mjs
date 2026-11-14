@@ -77,6 +77,12 @@ test('a job needs a schedule and a script', { skip }, () => {
   assert.match(noSchedule.stderr, /jobs\.mine\.schedule/);
 });
 
+test('metrics.pushgatewayUrl reaches every job, and is absent by default', { skip }, () => {
+  assert.doesNotMatch(render(repo).stdout, /SWARM_PUSHGATEWAY_URL/);
+  const { stdout } = render(repo, 'metrics.pushgatewayUrl=http://pg:9091');
+  assert.equal(stdout.match(/name: SWARM_PUSHGATEWAY_URL\s+value: "http:\/\/pg:9091"/g).length, 2);
+});
+
 test('script arguments render as strings', { skip }, () => {
   const { stdout } = render(repo, 'jobs.mine.schedule=0 * * * *', 'jobs.mine.run={x.mjs,--n,5}');
   assert.match(stdout, /- "x\.mjs"\n\s+- "--n"\n\s+- "5"/);

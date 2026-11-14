@@ -4,6 +4,7 @@
 import { bodyBlockers, oldName } from './rules.mjs';
 
 export function client({ token, repo, dryRun = false, log = console.error, fetchImpl = fetch }) {
+  let remaining = null; // requests left in the token's hour, as the last response gave it
   async function api(method, path, body) {
     const url = path.startsWith('http') ? path : `https://api.github.com${path.startsWith('/repos') ? path : `/repos/${repo}${path}`}`;
     if (dryRun && method !== 'GET') {
@@ -20,6 +21,8 @@ export function client({ token, repo, dryRun = false, log = console.error, fetch
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    const left = res.headers?.get?.('x-ratelimit-remaining');
+    if (left != null) remaining = Number(left);
     if (!res.ok) {
       const err = new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
       err.status = res.status;
@@ -58,6 +61,8 @@ export function client({ token, repo, dryRun = false, log = console.error, fetch
   return {
     repo,
     dryRun,
+    /** GitHub API requests left in the token's hour, or null before the first response. */
+    rateLimitRemaining: () => remaining,
     /** Open issues (no PRs) carrying every one of `labels`, oldest first. */
     openIssues: async (labels = []) => (await withLabels(labels, 'sort=created&direction=asc')).filter((i) => !i.pull_request),
     /** Open issues and pull requests carrying a label. */

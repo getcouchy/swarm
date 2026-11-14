@@ -2,12 +2,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  agentFromLogin, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, focus, lockLapsed, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
+  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, focus, lockLapsed, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
 } from './rules.mjs';
 import { client } from './github.mjs';
-import { LABELS, deskBody, migrateLabels, sweep, writeDesk } from './sweep.mjs';
+import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from './sweep.mjs';
+import { registry } from './metrics.mjs';
 import { claim, firstJob, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
-import { report } from './reviewed.mjs';
+import { report, status } from './reviewed.mjs';
 import { likelyWork, sync, toolsStale } from './preflight.mjs';
 
 const NOW = Date.parse('2026-11-10T12:00:00Z');
@@ -293,6 +294,149 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
   const desk = await gh.issue(90);
   assert.match(desk.body, /### Needs you\n\n- #7 Issue 7/);
   assert.match(desk.body, /agent-desk-state: \["draft:36","fix:31","held:33","hold:34","human:7","quiet:grok\/1","ready:4","review:30","review:34","stages:6"\]/);
+
+  const by = (rows) => Object.fromEntries(rows.map((r) => [r.number, r]));
+  assert.equal(by(result.pulls)[36].state, 'draft');
+  assert.equal(by(result.pulls)[33].state, 'hold');
+  assert.equal(by(result.pulls)[31].state, 'needs_work');
+  assert.equal(by(result.pulls)[30].state, 'needs_review');
+  assert.equal(by(result.pulls)[30].agent, '');
+  assert.deepEqual(by(result.issues)[3], { number: 3, state: 'locked', agent: 'claude' });
+  assert.equal(by(result.issues)[4].state, 'claimable');
+  assert.deepEqual(result.locks.map((l) => `${l.type}:${l.number}:${l.agent}`).sort(), ['issue:2:codex', 'issue:3:claude']);
+  assert.deepEqual(result.heartbeats.map((h) => h.agent).sort(), ['codex/1', 'grok/1']);
+  assert.deepEqual(result.fixedCounts, { lock_lapsed: 2, lock_doubled: 1 });
+  assert.deepEqual(result.labelled.needsHuman, [{ number: 7, type: 'issue', agent: '' }]);
+  assert.deepEqual(result.labelled.hold.map((h) => h.number).sort(), [33, 34]);
+  const fix = result.overdue.find((o) => o.key === 'fix:31');
+  assert.deepEqual([fix.kind, fix.number, fix.since], ['fix', 31, ago(3)]);
+  const quiet = result.overdue.find((o) => o.key === 'quiet:grok/1');
+  assert.deepEqual([quiet.number, quiet.agent], [null, 'grok/1']);
+});
+
+test('counters: a newly labelled item adds one; the first run only records', () => {
+  const now = { needsHuman: [{ number: 7, type: 'issue', agent: 'claude' }], hold: [{ number: 34, agent: '' }] };
+  const first = countLabelled(readCounters('no marker here'), now);
+  assert.deepEqual(first, { needsHuman: {}, hold: {}, labelled: { needsHuman: [7], hold: [34] } });
+  const second = countLabelled(readCounters(deskBody([], NOW, first)), {
+    needsHuman: [...now.needsHuman, { number: 9, type: 'pull', agent: 'codex' }], hold: [],
+  });
+  assert.deepEqual(second.needsHuman, { 'pull|codex': 1 });
+  assert.deepEqual(second.labelled, { needsHuman: [7, 9], hold: [] });
+  // #34 comes back on hold: counted again.
+  const third = countLabelled(readCounters(deskBody([], NOW, second)), { needsHuman: now.needsHuman, hold: now.hold });
+  assert.deepEqual(third.hold, { '': 1 });
+  assert.equal(readCounters('<!-- swarm-counters: {oops -->').fresh, true);
+});
+
+test('desk: comments can be turned off; the body still carries state and counters', async () => {
+  const gh = fake({ issues: [issue(90, ['swarm/desk'], { body: '' })] });
+  const overdue = [{ section: 'Needs you', key: 'human:7', line: '#7 x' }];
+  const counters = await writeDesk(gh, { desk: await gh.issue(90), overdue, fixed: ['f'], labelled: { needsHuman: [], hold: [] }, now: NOW, comments: false });
+  assert.deepEqual(gh.log, ['edit 90']);
+  assert.match((await gh.issue(90)).body, /agent-desk-state: \["human:7"\] -->\n<!-- swarm-counters: /);
+  assert.deepEqual(counters.labelled, { needsHuman: [], hold: [] });
+});
+
+test('desk: created on the first run with a counters marker', async () => {
+  const gh = fake();
+  await writeDesk(gh, { desk: null, overdue: [], fixed: [], labelled: { needsHuman: [], hold: [] }, now: NOW });
+  assert.match((await gh.issue(999)).body, /swarm-counters: /);
+});
+
+test('sweep metrics: one series per item, limits in seconds', () => {
+  const reg = registry();
+  sweepMetrics(reg, {
+    result: {
+      pulls: [{ number: 30, state: 'needs_review', agent: '' }], issues: [{ number: 3, state: 'locked', agent: 'claude' }],
+      locks: [{ number: 3, agent: 'claude', type: 'issue', since: ago(1) }], heartbeats: [{ agent: 'grok/1', at: ago(20) }],
+      overdue: [{ kind: 'quiet', number: null, agent: 'grok/1', since: ago(20) }, { kind: 'stages', number: 6, agent: '', since: null }],
+      fixedCounts: { lock_lapsed: 2, lock_doubled: 1 },
+    },
+    counters: { needsHuman: { 'issue|claude': 3 }, hold: {} }, migrated: 0, limits: LIMITS, now: NOW, startedAt: NOW - 4000, rateLimit: 4321,
+  });
+  const out = reg.render();
+  assert.match(out, /swarm_pulls\{number="30",state="needs_review",agent=""\} 1\n/);
+  assert.match(out, /swarm_lock_age_seconds\{number="3",agent="claude",type="issue"\} 3600\n/);
+  assert.match(out, /swarm_overdue_age_seconds\{number="",kind="quiet",agent="grok\/1"\} 72000\n/);
+  assert.match(out, /swarm_overdue_age_seconds\{number="6",kind="stages",agent=""\} 0\n/);
+  assert.match(out, /swarm_limit_seconds\{limit="claim"\} 5400\n/);
+  assert.match(out, /swarm_limit_seconds\{limit="heartbeat"\} 28800\n/);
+  assert.match(out, /swarm_sweep_fixed\{action="label_migrated"\} 0\n/);
+  assert.match(out, /swarm_needs_human_total\{type="issue",agent="claude"\} 3\n/);
+  assert.match(out, /swarm_hold_total\{agent=""\} 0\n/);
+  assert.match(out, /swarm_job_duration_seconds 4\n/);
+  assert.match(out, /swarm_github_rate_limit_remaining 4321\n/);
+});
+
+test('sweep metrics: an agent with several heartbeat comments reports its newest', () => {
+  const reg = registry();
+  sweepMetrics(reg, {
+    result: {
+      pulls: [], issues: [], locks: [], overdue: [], fixedCounts: { lock_lapsed: 0, lock_doubled: 0 },
+      heartbeats: [{ agent: 'grok', at: ago(16) }, { agent: 'grok', at: ago(8) }, { agent: 'grok', at: ago(14) }],
+    },
+    counters: { needsHuman: {}, hold: {} }, limits: LIMITS, now: NOW,
+  });
+  assert.match(reg.render(), new RegExp(`swarm_agent_last_tick_timestamp_seconds\\{agent="grok"\\} ${(NOW - 8 * 3_600_000) / 1000}\\n`));
+});
+
+test('sweep metrics: each agent seen in a run has its counters, at 0 until it is counted', () => {
+  // increase() reads nothing from a series that is born at 1, so the 0 has to be there first.
+  const reg = registry();
+  sweepMetrics(reg, {
+    result: {
+      pulls: [{ number: 30, state: 'needs_review', agent: 'codex' }], issues: [], locks: [{ number: 3, agent: 'claude', type: 'issue', since: ago(1) }],
+      heartbeats: [], overdue: [], fixedCounts: { lock_lapsed: 0, lock_doubled: 0 },
+    },
+    counters: { needsHuman: { 'issue|claude': 3 }, hold: {} }, limits: LIMITS, now: NOW,
+  });
+  const out = reg.render();
+  assert.match(out, /swarm_needs_human_total\{type="issue",agent="claude"\} 3\n/);
+  assert.match(out, /swarm_needs_human_total\{type="pull",agent="claude"\} 0\n/);
+  assert.match(out, /swarm_needs_human_total\{type="pull",agent="codex"\} 0\n/);
+  assert.match(out, /swarm_needs_human_total\{type="issue",agent=""\} 0\n/);
+  assert.match(out, /swarm_hold_total\{agent="codex"\} 0\n/);
+});
+
+test('counters: a marker of the wrong shape is a fresh start', () => {
+  const marker = (c) => `<!-- swarm-counters: ${JSON.stringify(c)} -->`;
+  const ok = { needsHuman: { 'issue|claude': 3 }, hold: {}, labelled: { needsHuman: [7], hold: [] } };
+  assert.equal(readCounters(marker(ok)).fresh, false);
+  assert.equal(readCounters(marker({ ...ok, hold: 'ab' })).fresh, true);
+  assert.equal(readCounters(marker({ ...ok, needsHuman: { 'issue|claude': '3' } })).fresh, true);
+  assert.equal(readCounters(marker({ ...ok, labelled: { needsHuman: 'x', hold: [] } })).fresh, true);
+});
+
+test('desk: with comments off, the body does not promise one', () => {
+  assert.match(deskBody([], NOW), /A comment is added once/);
+  const quiet = deskBody([], NOW, undefined, { comments: false });
+  assert.doesNotMatch(quiet, /A comment is added/);
+  assert.match(quiet, /heartbeats/);
+});
+
+test('client: remembers the rate limit left', async () => {
+  const gh = client({ token: 't', repo: 'a/b', fetchImpl: async () => ({ ok: true, status: 200, json: async () => [], headers: new Headers({ 'x-ratelimit-remaining': '4999' }) }) });
+  assert.equal(gh.rateLimitRemaining(), null);
+  await gh.labels();
+  assert.equal(gh.rateLimitRemaining(), 4999);
+});
+
+test('reviewed: status returns the state it posted', async () => {
+  const gh = fake({ pulls: [pull(40, ['swarm/pr'])] });
+  const { line, state } = await status(gh, (await gh.openPulls())[0]);
+  assert.equal(state, 'pending');
+  assert.match(line, /^#40: pending/);
+});
+
+test('pullState: first match wins', () => {
+  const ctx = { reviews: [], checks: [], pushedAt: ago(1), gated: false };
+  assert.equal(pullState(pull(1, ['swarm/pr', 'swarm/hold'], { draft: true }), ctx), 'draft');
+  assert.equal(pullState(pull(1, ['swarm/pr', 'swarm/hold', 'swarm/needs-human']), ctx), 'needs_human');
+  assert.equal(pullState(pull(1, ['swarm/pr', 'swarm/hold']), ctx), 'hold');
+  assert.equal(pullState(pull(1, ['swarm/pr', 'conflicts-with-main']), ctx), 'needs_work');
+  assert.equal(agentOf(pull(1, ['swarm/pr'], { user: { login: 'couchy-codex[bot]' } })), 'codex');
+  assert.equal(agentOf(pull(1, ['swarm/pr'])), '');
 });
 
 test('desk: nothing new means no comment; an empty desk says so', async () => {

@@ -12,6 +12,12 @@ github:
   # "GitHub App").
   secretName: swarm-github-app
 
+metrics:
+  # A Prometheus Pushgateway (http://host:9091). When set, the sweep and
+  # `reviewed` push their metrics there at the end of each run; docs/metrics.md
+  # in getcouchy/swarm lists them. Empty turns it off.
+  pushgatewayUrl: ""
+
 # Secret that `secretEnv` reads from. Keys missing from it leave the variable
 # unset. Required only when a job sets `secretEnv`.
 extraSecretName: ""
@@ -66,3 +72,5 @@ jobs:
     env: {}
     # CLAIM_MINUTES, READY_HOURS, REVIEW_HOURS, FIX_HOURS, HOLD_HOURS,
     # HEARTBEAT_HOURS: override the script's defaults.
+    # DESK_COMMENTS: "false" stops the comment the sweep adds to the Agent
+    # desk for each newly overdue item; its body is still rewritten.
