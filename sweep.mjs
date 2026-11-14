@@ -261,7 +261,47 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   return { fixed, overdue, desk, pulls: pullStates, issues: issueStates, locks, heartbeats, fixedCounts, labelled };
 }
 
-export function deskBody(overdue, now) {
+const COUNTERS = /<!-- swarm-counters: (.*?) -->/s;
+
+/**
+ * The totals behind swarm_needs_human_total and swarm_hold_total, and which
+ * items carried each label at the last run. A run lasts seconds, so they are
+ * kept in the desk's body from one run to the next. `fresh` says there was
+ * nothing to read: no marker yet, or one somebody broke by hand.
+ */
+export function readCounters(body) {
+  try {
+    const c = JSON.parse(COUNTERS.exec(body ?? '')[1]);
+    return {
+      needsHuman: { ...c.needsHuman }, hold: { ...c.hold },
+      labelled: { needsHuman: [...c.labelled.needsHuman], hold: [...c.labelled.hold] }, fresh: false,
+    };
+  } catch {
+    return { needsHuman: {}, hold: {}, labelled: { needsHuman: [], hold: [] }, fresh: true };
+  }
+}
+
+/**
+ * The counters after this run. An item that carries the label now and didn't
+ * at the last run adds one, under `<type>|<agent>` for needs-human and the
+ * agent for hold; one that lost the label and got it back counts again. A
+ * fresh start only records who carries the labels: counting them would read
+ * as that many handoffs in one run.
+ */
+export function countLabelled(prev, labelled) {
+  const next = { needsHuman: { ...prev.needsHuman }, hold: { ...prev.hold }, labelled: { needsHuman: [], hold: [] } };
+  const keyOf = { needsHuman: (i) => `${i.type}|${i.agent}`, hold: (i) => i.agent };
+  for (const label of ['needsHuman', 'hold']) {
+    for (const item of labelled[label]) {
+      if (prev.fresh || prev.labelled[label].includes(item.number)) continue;
+      next[label][keyOf[label](item)] = (next[label][keyOf[label](item)] ?? 0) + 1;
+    }
+    next.labelled[label] = labelled[label].map((i) => i.number).sort((a, b) => a - b);
+  }
+  return next;
+}
+
+export function deskBody(overdue, now, counters) {
   const sections = [...new Set(overdue.map((o) => o.section))];
   return [
     'What the agents (Claude, Codex, Grok…) are behind on, rewritten every hour by the Agent sweep workflow (see `PROTOCOL.md` in getcouchy/swarm). ' +
@@ -274,11 +314,18 @@ export function deskBody(overdue, now) {
     `As of ${new Date(now).toISOString().slice(0, 16).replace('T', ' ')} UTC.`,
     '',
     `<!-- agent-desk-state: ${JSON.stringify(overdue.map((o) => o.key).sort())} -->`,
+    ...(counters ? [`<!-- swarm-counters: ${JSON.stringify(counters)} -->`] : []),
   ].join('\n');
 }
 
-export async function writeDesk(gh, { desk, overdue, fixed, now = Date.now() }) {
-  const body = deskBody(overdue, now);
+/**
+ * Rewrites the desk (or opens it) and, unless `comments` is false, comments
+ * once with what is newly overdue and what the sweep fixed. Returns the
+ * counters it wrote into the body.
+ */
+export async function writeDesk(gh, { desk, overdue, fixed, labelled = { needsHuman: [], hold: [] }, now = Date.now(), comments = true }) {
+  const counters = countLabelled(readCounters(desk?.body), labelled);
+  const body = deskBody(overdue, now, counters);
   let seen = [];
   if (desk) {
     try {
@@ -289,15 +336,16 @@ export async function writeDesk(gh, { desk, overdue, fixed, now = Date.now() }) 
     await gh.editIssue(desk.number, { body });
   } else {
     desk = await gh.createIssue('Agent desk', body, [DESK]);
-    if (!desk) return; // dry run
+    if (!desk) return counters; // dry run
   }
   const fresh = overdue.filter((o) => !seen.includes(o.key));
-  if (fresh.length || fixed.length) {
+  if (comments && (fresh.length || fixed.length)) {
     await gh.comment(desk.number, [
       ...(fresh.length ? ['Newly overdue:', '', ...fresh.map((o) => `- ${o.line}`), ''] : []),
       ...(fixed.length ? ['Fixed by the sweep:', '', ...fixed.map((f) => `- ${f}`)] : []),
     ].join('\n').trim());
   }
+  return counters;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

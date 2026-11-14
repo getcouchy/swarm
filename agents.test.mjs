@@ -5,7 +5,7 @@ import {
   agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, focus, lockLapsed, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
 } from './rules.mjs';
 import { client } from './github.mjs';
-import { LABELS, deskBody, migrateLabels, sweep, writeDesk } from './sweep.mjs';
+import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, writeDesk } from './sweep.mjs';
 import { claim, firstJob, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
 import { report } from './reviewed.mjs';
 import { likelyWork, sync, toolsStale } from './preflight.mjs';
@@ -311,6 +311,36 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
   assert.deepEqual([fix.kind, fix.number, fix.since], ['fix', 31, ago(3)]);
   const quiet = result.overdue.find((o) => o.key === 'quiet:grok/1');
   assert.deepEqual([quiet.number, quiet.agent], [null, 'grok/1']);
+});
+
+test('counters: a newly labelled item adds one; the first run only records', () => {
+  const now = { needsHuman: [{ number: 7, type: 'issue', agent: 'claude' }], hold: [{ number: 34, agent: '' }] };
+  const first = countLabelled(readCounters('no marker here'), now);
+  assert.deepEqual(first, { needsHuman: {}, hold: {}, labelled: { needsHuman: [7], hold: [34] } });
+  const second = countLabelled(readCounters(deskBody([], NOW, first)), {
+    needsHuman: [...now.needsHuman, { number: 9, type: 'pull', agent: 'codex' }], hold: [],
+  });
+  assert.deepEqual(second.needsHuman, { 'pull|codex': 1 });
+  assert.deepEqual(second.labelled, { needsHuman: [7, 9], hold: [] });
+  // #34 comes back on hold: counted again.
+  const third = countLabelled(readCounters(deskBody([], NOW, second)), { needsHuman: now.needsHuman, hold: now.hold });
+  assert.deepEqual(third.hold, { '': 1 });
+  assert.equal(readCounters('<!-- swarm-counters: {oops -->').fresh, true);
+});
+
+test('desk: comments can be turned off; the body still carries state and counters', async () => {
+  const gh = fake({ issues: [issue(90, ['swarm/desk'], { body: '' })] });
+  const overdue = [{ section: 'Needs you', key: 'human:7', line: '#7 x' }];
+  const counters = await writeDesk(gh, { desk: await gh.issue(90), overdue, fixed: ['f'], labelled: { needsHuman: [], hold: [] }, now: NOW, comments: false });
+  assert.deepEqual(gh.log, ['edit 90']);
+  assert.match((await gh.issue(90)).body, /agent-desk-state: \["human:7"\] -->\n<!-- swarm-counters: /);
+  assert.deepEqual(counters.labelled, { needsHuman: [], hold: [] });
+});
+
+test('desk: created on the first run with a counters marker', async () => {
+  const gh = fake();
+  await writeDesk(gh, { desk: null, overdue: [], fixed: [], labelled: { needsHuman: [], hold: [] }, now: NOW });
+  assert.match((await gh.issue(999)).body, /swarm-counters: /);
 });
 
 test('pullState: first match wins', () => {
