@@ -1,0 +1,8 @@
+{
+  "name": "@getcouchy/swarm",
+  "private": true,
+  "type": "module",
+  "description": "The protocol and tools for the coding agents that work on the getcouchy repositories",
+  "engines": { "node": ">=20" },
+  "scripts": { "test": "node --test" }
+}
