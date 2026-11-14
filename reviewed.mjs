@@ -16,7 +16,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { fromEnv } from './github.mjs';
-import { push, registry } from './metrics.mjs';
+import { pushRun } from './metrics.mjs';
 import { REVIEWED, reviewedStatus } from './rules.mjs';
 
 /**
@@ -44,18 +44,21 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const gh = fromEnv();
   const number = Number(process.argv[2] || process.env.PR_NUMBER);
   const pulls = number ? [await gh.pull(number)] : await gh.openPulls();
-  const reg = registry();
+  const posted = [];
   for (const pr of pulls.filter((p) => p.state === 'open')) {
     const { line, state } = await status(gh, pr);
     console.log(line);
-    reg.set('swarm_reviewed_pulls', { number: String(pr.number), state }, 1);
+    posted.push({ number: pr.number, state });
   }
-  // A push replaces everything this job pushed before, so a run for one pull
-  // request doesn't push: it would drop every other one's series.
-  if (!number) {
+  // The statuses are all posted before a metric is touched: nothing about the
+  // metrics may keep a pull request from its status. A push replaces everything
+  // this job pushed before, so a run for one pull request doesn't push: it
+  // would drop every other one's series.
+  const fill = (reg) => {
+    for (const p of posted) reg.set('swarm_reviewed_pulls', { number: String(p.number), state: p.state }, 1);
     reg.set('swarm_job_last_success_timestamp_seconds', {}, Date.now() / 1000);
     reg.set('swarm_job_duration_seconds', {}, (Date.now() - startedAt) / 1000);
     if (gh.rateLimitRemaining() !== null) reg.set('swarm_github_rate_limit_remaining', {}, gh.rateLimitRemaining());
-    if (await push(reg, { job: 'swarm_reviewed', repository: gh.repo })) console.log('Pushed metrics.');
-  }
+  };
+  if (!number && await pushRun({ fill, job: 'swarm_reviewed', repository: gh.repo })) console.log('Pushed metrics.');
 }

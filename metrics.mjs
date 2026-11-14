@@ -86,3 +86,20 @@ export async function push(reg, {
   }
   return false;
 }
+
+/**
+ * What a script calls at the end of a run: `fill(registry)` sets the run's
+ * samples, and they are pushed as push() does. Nothing here throws. A sample
+ * that METRICS doesn't allow costs a logged line, as a Pushgateway that is
+ * down does, and the run's own work stands.
+ */
+export async function pushRun({ fill, log = console.error, ...opts }) {
+  const reg = registry();
+  try {
+    fill(reg);
+  } catch (e) {
+    log(`metrics: nothing pushed: ${e.message}`);
+    return false;
+  }
+  return push(reg, { log, ...opts });
+}

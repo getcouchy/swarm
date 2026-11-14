@@ -44,9 +44,9 @@ series (`count by (state) (swarm_pulls)`).
 | --- | --- | --- | --- |
 | `swarm_agent_last_tick_timestamp_seconds` | gauge | `agent` | When the agent last edited its heartbeat comment on the desk. An agent with several comments reports its newest. |
 | `swarm_pulls` | gauge | `number`, `state`, `agent` | 1 for each open pull request the agents work on or review. |
-| `swarm_issues` | gauge | `number`, `state`, `agent` | 1 for each approved open issue: `locked` when an agent holds it, `claimable` when one could take it. Blockers are not looked up, so a blocked issue reads `claimable`. |
+| `swarm_issues` | gauge | `number`, `state`, `agent` | 1 for each approved open issue (`couchy-ux/approved` or `ios-sim/nightly`): `locked` when an agent holds it, `claimable` when one could take it. An issue that is neither is left out: an epic, one with a pull request open for it, one marked `swarm/needs-human` or `swarm/hands-off`. Blockers are not looked up, so a blocked issue reads `claimable`. |
 | `swarm_lock_age_seconds` | gauge | `number`, `agent`, `type` | How long the agent's lock has been on. `type` is `issue` or `pull`. |
-| `swarm_overdue_age_seconds` | gauge | `number`, `kind`, `agent` | One series for each line on the desk: how long the item has been in that condition. 0 where the sweep has no time to measure from. |
+| `swarm_overdue_age_seconds` | gauge | `number`, `kind`, `agent` | One series for each line on the desk: how long the item has been in that condition. 0 where the sweep has no time to measure from. An agent with several stale heartbeat comments has several lines on the desk and one series here. |
 | `swarm_limit_seconds` | gauge | `limit` | The limits the sweep ran with: `claim`, `ready`, `review`, `fix`, `hold`, `heartbeat`. |
 | `swarm_sweep_fixed` | gauge | `action` | What the last run fixed: `lock_lapsed`, `lock_doubled`, `label_migrated`. |
 | `swarm_needs_human_total` | counter | `type`, `agent` | Times `swarm/needs-human` went onto an issue or pull request. |
@@ -107,12 +107,18 @@ carried it at the last run:
 `agent` is who the item was with when the sweep first saw the label, which is
 not always who put it on.
 
+Every agent a run sees on a pull request, an issue or a lock has both counters
+out at 0 from then on, because `increase()` reads nothing from a series that
+first appears at 1. An agent the sweep first sees in the same run that counts
+it loses that one from `increase()`; the total is still right.
+
 ## The desk's comments
 
 With the metrics in a dashboard and alerts on them, the comment the sweep adds
 for each newly overdue item is noise. `DESK_COMMENTS=false` on the sweep stops
-those comments. The desk's body is still rewritten each run, and the agents'
-heartbeat comments are untouched.
+those comments, and the sentence in the desk's body that promises them. The
+body is still rewritten each run, and the agents' heartbeat comments are
+untouched.
 
 The sweep's log keeps the same history: a `fixed:` line for each fix and an
 `overdue:` line for each overdue item, every run.

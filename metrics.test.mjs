@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { METRICS, push, registry } from './metrics.mjs';
+import { METRICS, push, pushRun, registry } from './metrics.mjs';
 
 test('docs/metrics.md lists exactly the defined metrics', () => {
   const doc = readFileSync(new URL('./docs/metrics.md', import.meta.url), 'utf8');
@@ -22,6 +22,25 @@ test('dashboard: every swarm_ metric it queries is defined; none is left out', (
   // Every Prometheus query is narrowed to the chosen repository, or it would mix repositories.
   const exprs = dash.panels.flatMap((p) => p.targets ?? []).filter((t) => t.datasource.type === 'prometheus').map((t) => t.expr);
   for (const expr of exprs.filter((e) => e.includes('swarm_'))) assert.match(expr, /repository="\$repository"/, expr);
+});
+
+test('dashboard: the agent filter lists every agent a series names; datasources default to the usual uids', () => {
+  const dash = JSON.parse(readFileSync(new URL('./charts/swarm/dashboards/swarm.json', import.meta.url), 'utf8'));
+  const variable = (name) => dash.templating.list.find((v) => v.name === name);
+  // Heartbeat ids alone would miss an agent known only by its lock or its bot.
+  assert.match(variable('agent').query.query, /__name__=~"swarm_\.\+"/);
+  assert.equal(variable('prometheus').current.value, 'prometheus');
+  assert.equal(variable('loki').current.value, 'loki');
+});
+
+test('pushRun: a registry that can not be filled costs a logged line, not the run', async () => {
+  const lines = [];
+  const calls = [];
+  const opts = { job: 'j', repository: 'a/b', url: 'http://pg', dryRun: false, log: (l) => lines.push(l), fetchImpl: async (u) => { calls.push(u); return { ok: true, status: 200 }; } };
+  assert.equal(await pushRun({ ...opts, fill: (reg) => reg.set('swarm_nope', {}, 1) }), false);
+  assert.deepEqual([lines.length, calls.length], [1, 0]);
+  assert.equal(await pushRun({ ...opts, fill: (reg) => reg.set('swarm_job_duration_seconds', {}, 2) }), true);
+  assert.equal(calls.length, 1);
 });
 
 test('render: help, type, escaped labels', () => {

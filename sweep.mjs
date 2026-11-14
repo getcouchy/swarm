@@ -19,7 +19,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { fromEnv } from './github.mjs';
-import { push, registry } from './metrics.mjs';
+import { pushRun } from './metrics.mjs';
 import {
   AGENT_PREFIX, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, READY, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, fixReasons,
   heartbeatId, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
@@ -272,11 +272,15 @@ const COUNTERS = /<!-- swarm-counters: (.*?) -->/s;
  * The totals behind swarm_needs_human_total and swarm_hold_total, and which
  * items carried each label at the last run. A run lasts seconds, so they are
  * kept in the desk's body from one run to the next. `fresh` says there was
- * nothing to read: no marker yet, or one somebody broke by hand.
+ * nothing to read: no marker yet, or one somebody broke by hand (JSON that
+ * doesn't parse, or totals that aren't whole numbers).
  */
 export function readCounters(body) {
+  const totals = (t) => t && typeof t === 'object' && !Array.isArray(t) && Object.values(t).every((v) => Number.isSafeInteger(v) && v >= 0);
+  const numbers = (list) => Array.isArray(list) && list.every(Number.isSafeInteger);
   try {
     const c = JSON.parse(COUNTERS.exec(body ?? '')[1]);
+    if (!totals(c.needsHuman) || !totals(c.hold) || !numbers(c.labelled.needsHuman) || !numbers(c.labelled.hold)) throw new Error('not the shape countLabelled writes');
     return {
       needsHuman: { ...c.needsHuman }, hold: { ...c.hold },
       labelled: { needsHuman: [...c.labelled.needsHuman], hold: [...c.labelled.hold] }, fresh: false,
@@ -306,11 +310,11 @@ export function countLabelled(prev, labelled) {
   return next;
 }
 
-export function deskBody(overdue, now, counters) {
+export function deskBody(overdue, now, counters, { comments = true } = {}) {
   const sections = [...new Set(overdue.map((o) => o.section))];
   return [
     'What the agents (Claude, Codex, Grok…) are behind on, rewritten every hour by the Agent sweep workflow (see `PROTOCOL.md` in getcouchy/swarm). ' +
-      'A comment is added once for each newly overdue item, so subscribing to this issue is enough. ' +
+      (comments ? 'A comment is added once for each newly overdue item, so subscribing to this issue is enough. ' : '') +
       'The comments that say "last ticked" are the agents\' heartbeats; they edit their own.',
     '',
     ...(overdue.length
@@ -330,7 +334,7 @@ export function deskBody(overdue, now, counters) {
  */
 export async function writeDesk(gh, { desk, overdue, fixed, labelled = { needsHuman: [], hold: [] }, now = Date.now(), comments = true }) {
   const counters = countLabelled(readCounters(desk?.body), labelled);
-  const body = deskBody(overdue, now, counters);
+  const body = deskBody(overdue, now, counters, { comments });
   let seen = [];
   if (desk) {
     try {
@@ -371,14 +375,18 @@ export function sweepMetrics(reg, { result, counters, migrated = 0, limits, now 
   for (const o of result.overdue) reg.set('swarm_overdue_age_seconds', { number: n(o.number), kind: o.kind, agent: o.agent }, seconds(o.since));
   for (const [limit, value] of Object.entries(limits)) reg.set('swarm_limit_seconds', { limit }, value * (limit === 'claim' ? 60 : 3600));
   for (const [action, count] of Object.entries({ ...result.fixedCounts, label_migrated: migrated })) reg.set('swarm_sweep_fixed', { action }, count);
-  // A counter nobody has added to yet still goes out, at 0, so increase() has a start to measure from.
-  const needsHuman = Object.entries(counters.needsHuman);
-  for (const [key, total] of needsHuman.length ? needsHuman : [['issue|', 0]]) {
+  // increase() reads nothing from a series that first appears at 1, so each
+  // agent this run saw (and '', an item with nobody on it) has its counters
+  // out at 0 before anything is counted under it. Only an agent first seen in
+  // the very run that counts it loses that one.
+  const agents = new Set(['', ...[...result.pulls, ...result.issues, ...result.locks].map((i) => i.agent)]);
+  const needsHuman = { ...Object.fromEntries([...agents].flatMap((a) => [[`issue|${a}`, 0], [`pull|${a}`, 0]])), ...counters.needsHuman };
+  for (const [key, total] of Object.entries(needsHuman)) {
     const [type, ...agent] = key.split('|');
     reg.set('swarm_needs_human_total', { type, agent: agent.join('|') }, total);
   }
-  const hold = Object.entries(counters.hold);
-  for (const [agent, total] of hold.length ? hold : [['', 0]]) reg.set('swarm_hold_total', { agent }, total);
+  const hold = { ...Object.fromEntries([...agents].map((a) => [a, 0])), ...counters.hold };
+  for (const [agent, total] of Object.entries(hold)) reg.set('swarm_hold_total', { agent }, total);
   reg.set('swarm_job_last_success_timestamp_seconds', {}, now / 1000);
   reg.set('swarm_job_duration_seconds', {}, (now - startedAt) / 1000);
   if (rateLimit !== null) reg.set('swarm_github_rate_limit_remaining', {}, rateLimit);
@@ -406,8 +414,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   // DESK_COMMENTS=false: the desk's body is still rewritten, but nothing is commented.
   const counters = await writeDesk(gh, { ...result, comments: process.env.DESK_COMMENTS !== 'false' });
   // Last, and never fatal: the sweep's own work is done by now.
-  const reg = registry();
-  sweepMetrics(reg, { result, counters, migrated: renamed.length, limits, startedAt, rateLimit: gh.rateLimitRemaining() });
-  if (await push(reg, { job: 'swarm_sweep', repository: gh.repo })) console.log('Pushed metrics.');
+  const fill = (reg) => sweepMetrics(reg, { result, counters, migrated: renamed.length, limits, startedAt, rateLimit: gh.rateLimitRemaining() });
+  if (await pushRun({ fill, job: 'swarm_sweep', repository: gh.repo })) console.log('Pushed metrics.');
   console.log(`${result.fixed.length} fixed, ${result.overdue.length} overdue.`);
 }

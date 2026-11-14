@@ -381,6 +381,40 @@ test('sweep metrics: an agent with several heartbeat comments reports its newest
   assert.match(reg.render(), new RegExp(`swarm_agent_last_tick_timestamp_seconds\\{agent="grok"\\} ${(NOW - 8 * 3_600_000) / 1000}\\n`));
 });
 
+test('sweep metrics: each agent seen in a run has its counters, at 0 until it is counted', () => {
+  // increase() reads nothing from a series that is born at 1, so the 0 has to be there first.
+  const reg = registry();
+  sweepMetrics(reg, {
+    result: {
+      pulls: [{ number: 30, state: 'needs_review', agent: 'codex' }], issues: [], locks: [{ number: 3, agent: 'claude', type: 'issue', since: ago(1) }],
+      heartbeats: [], overdue: [], fixedCounts: { lock_lapsed: 0, lock_doubled: 0 },
+    },
+    counters: { needsHuman: { 'issue|claude': 3 }, hold: {} }, limits: LIMITS, now: NOW,
+  });
+  const out = reg.render();
+  assert.match(out, /swarm_needs_human_total\{type="issue",agent="claude"\} 3\n/);
+  assert.match(out, /swarm_needs_human_total\{type="pull",agent="claude"\} 0\n/);
+  assert.match(out, /swarm_needs_human_total\{type="pull",agent="codex"\} 0\n/);
+  assert.match(out, /swarm_needs_human_total\{type="issue",agent=""\} 0\n/);
+  assert.match(out, /swarm_hold_total\{agent="codex"\} 0\n/);
+});
+
+test('counters: a marker of the wrong shape is a fresh start', () => {
+  const marker = (c) => `<!-- swarm-counters: ${JSON.stringify(c)} -->`;
+  const ok = { needsHuman: { 'issue|claude': 3 }, hold: {}, labelled: { needsHuman: [7], hold: [] } };
+  assert.equal(readCounters(marker(ok)).fresh, false);
+  assert.equal(readCounters(marker({ ...ok, hold: 'ab' })).fresh, true);
+  assert.equal(readCounters(marker({ ...ok, needsHuman: { 'issue|claude': '3' } })).fresh, true);
+  assert.equal(readCounters(marker({ ...ok, labelled: { needsHuman: 'x', hold: [] } })).fresh, true);
+});
+
+test('desk: with comments off, the body does not promise one', () => {
+  assert.match(deskBody([], NOW), /A comment is added once/);
+  const quiet = deskBody([], NOW, undefined, { comments: false });
+  assert.doesNotMatch(quiet, /A comment is added/);
+  assert.match(quiet, /heartbeats/);
+});
+
 test('client: remembers the rate limit left', async () => {
   const gh = client({ token: 't', repo: 'a/b', fetchImpl: async () => ({ ok: true, status: 200, json: async () => [], headers: new Headers({ 'x-ratelimit-remaining': '4999' }) }) });
   assert.equal(gh.rateLimitRemaining(), null);

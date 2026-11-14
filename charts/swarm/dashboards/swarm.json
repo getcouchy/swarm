@@ -20,13 +20,21 @@
         "name": "prometheus",
         "type": "datasource",
         "query": "prometheus",
-        "label": "Prometheus"
+        "label": "Prometheus",
+        "current": {
+          "text": "prometheus",
+          "value": "prometheus"
+        }
       },
       {
         "name": "loki",
         "type": "datasource",
         "query": "loki",
-        "label": "Loki"
+        "label": "Loki",
+        "current": {
+          "text": "loki",
+          "value": "loki"
+        }
       },
       {
         "name": "repository",
@@ -61,7 +69,7 @@
           "value": "$__all"
         },
         "query": {
-          "query": "label_values(swarm_agent_last_tick_timestamp_seconds{repository=\"$repository\"}, agent)",
+          "query": "label_values({__name__=~\"swarm_.+\", repository=\"$repository\"}, agent)",
           "refId": "agent"
         }
       },
