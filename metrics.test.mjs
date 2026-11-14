@@ -1,7 +1,15 @@
 // node --test
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { METRICS, push, registry } from './metrics.mjs';
+
+test('docs/metrics.md lists exactly the defined metrics', () => {
+  const doc = readFileSync(new URL('./docs/metrics.md', import.meta.url), 'utf8');
+  const JOBS = ['swarm_sweep', 'swarm_reviewed']; // the Pushgateway job names, which the doc also explains
+  const named = new Set(doc.match(/swarm_[a-z_]+/g).filter((n) => !JOBS.includes(n)));
+  assert.deepEqual([...named].sort(), Object.keys(METRICS).sort());
+});
 
 test('render: help, type, escaped labels', () => {
   const r = registry();

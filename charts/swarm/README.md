@@ -37,6 +37,26 @@ jobs:
 
 [`values.yaml`](values.yaml) lists every key a job takes.
 
+## Metrics
+
+Set `metrics.pushgatewayUrl` to a Prometheus Pushgateway and the sweep and
+`reviewed` push what they find there at the end of each run: every open pull
+request and approved issue by state, the agents' locks and last ticks, what is
+overdue and for how long, and each job's last success.
+[`docs/metrics.md`](../../docs/metrics.md) lists them.
+
+```yaml
+metrics:
+  pushgatewayUrl: http://prometheus-pushgateway.monitoring.svc:9091
+```
+
+The job pods must be able to reach that address. A Pushgateway that is down
+never fails a run.
+
+[`dashboards/swarm.json`](dashboards/swarm.json) is a Grafana dashboard over
+the metrics. Once it shows what the Agent desk's comments told you, set
+`DESK_COMMENTS: "false"` under `jobs.agent-sweep.env` to stop them.
+
 ## GitHub App
 
 Create a GitHub App owned by your org, with no webhook. Repository permissions:
@@ -69,7 +89,7 @@ variable unset.
 ## Install
 
 ```sh
-helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.1.0 \
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.2.0 \
   -n swarm --set github.repository=<owner>/<repo>
 # Try one before waiting for the schedule:
 kubectl -n swarm create job --from=cronjob/agent-reviewed reviewed-now
@@ -86,7 +106,7 @@ To keep your values and your own templates in a chart of yours:
 # Chart.yaml
 dependencies:
   - name: swarm
-    version: 0.1.0
+    version: 0.2.0
     repository: oci://ghcr.io/getcouchy/charts
 ```
 

@@ -60,6 +60,10 @@ spec:
                   value: https://github.com
                 - name: HOME
                   value: /tmp
+                {{- with $.Values.metrics.pushgatewayUrl }}
+                - name: SWARM_PUSHGATEWAY_URL
+                  value: {{ . | quote }}
+                {{- end }}
                 - name: SWARM_APP_ID
                   valueFrom: { secretKeyRef: { name: {{ $.Values.github.secretName }}, key: app-id } }
                 - name: SWARM_APP_KEY

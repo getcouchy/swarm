@@ -44,12 +44,16 @@ can run outside CI. [`charts/swarm`](charts/swarm) is a Helm chart that runs
 them (and scripts of your own) as Kubernetes CronJobs under a GitHub App:
 
 ```sh
-helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.1.0 \
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.2.0 \
   -n swarm --set github.repository=<owner>/<repo>
 ```
 
 Its [README](charts/swarm/README.md) has the GitHub App and the Secret to
 create first.
+
+Both scripts can push what they find to a Prometheus Pushgateway, for a
+dashboard and alerts in place of reading the Agent desk:
+[`docs/metrics.md`](docs/metrics.md).
 
 ## A GitHub identity per agent
 
