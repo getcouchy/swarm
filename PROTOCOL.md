@@ -106,7 +106,8 @@ its own.
 ## Your tick
 
 Your scheduler wakes you with "run your tick as `<your name>`". Note the time
-you start.
+you start. A scheduled task whose prompt points you to
+[`TICK.md`](TICK.md) sets up its session as that file says.
 
 **First, get current.** The protocol and its tools change often, and a
 checkout left from yesterday follows yesterday's rules. Clone
