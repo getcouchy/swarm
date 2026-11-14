@@ -10,11 +10,16 @@
 //     comments there once for each newly overdue item, so watching that one
 //     issue is enough.
 //
+// It ends by pushing what it found as Prometheus metrics (docs/metrics.md)
+// when SWARM_PUSHGATEWAY_URL is set.
+//
 // Needs GITHUB_TOKEN (issues write; pull requests and checks read) and
 // GITHUB_REPOSITORY. DRY_RUN=true logs what it would change.
+// DESK_COMMENTS=false leaves the comments out.
 
 import { pathToFileURL } from 'node:url';
 import { fromEnv } from './github.mjs';
+import { push, registry } from './metrics.mjs';
 import {
   AGENT_PREFIX, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, READY, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, fixReasons,
   heartbeatId, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
@@ -348,25 +353,61 @@ export async function writeDesk(gh, { desk, overdue, fixed, labelled = { needsHu
   return counters;
 }
 
+/**
+ * Fills a metrics.mjs registry from one run: `result` from sweep(), `counters`
+ * from writeDesk(), `migrated` the number of labels migrateLabels() moved.
+ * Limits go out in seconds whatever unit they came in.
+ */
+export function sweepMetrics(reg, { result, counters, migrated = 0, limits, now = Date.now(), startedAt = now, rateLimit = null }) {
+  const seconds = (since) => (since ? (now - Date.parse(since)) / 1000 : 0);
+  const n = (number) => (number == null ? '' : String(number));
+  // An agent can have left more than one heartbeat comment; its newest is when it last ticked.
+  const ticked = new Map();
+  for (const h of result.heartbeats) ticked.set(h.agent, Math.max(ticked.get(h.agent) ?? 0, Date.parse(h.at) / 1000));
+  for (const [agent, at] of ticked) reg.set('swarm_agent_last_tick_timestamp_seconds', { agent }, at);
+  for (const p of result.pulls) reg.set('swarm_pulls', { number: n(p.number), state: p.state, agent: p.agent }, 1);
+  for (const i of result.issues) reg.set('swarm_issues', { number: n(i.number), state: i.state, agent: i.agent }, 1);
+  for (const l of result.locks) reg.set('swarm_lock_age_seconds', { number: n(l.number), agent: l.agent, type: l.type }, seconds(l.since));
+  for (const o of result.overdue) reg.set('swarm_overdue_age_seconds', { number: n(o.number), kind: o.kind, agent: o.agent }, seconds(o.since));
+  for (const [limit, value] of Object.entries(limits)) reg.set('swarm_limit_seconds', { limit }, value * (limit === 'claim' ? 60 : 3600));
+  for (const [action, count] of Object.entries({ ...result.fixedCounts, label_migrated: migrated })) reg.set('swarm_sweep_fixed', { action }, count);
+  // A counter nobody has added to yet still goes out, at 0, so increase() has a start to measure from.
+  const needsHuman = Object.entries(counters.needsHuman);
+  for (const [key, total] of needsHuman.length ? needsHuman : [['issue|', 0]]) {
+    const [type, ...agent] = key.split('|');
+    reg.set('swarm_needs_human_total', { type, agent: agent.join('|') }, total);
+  }
+  const hold = Object.entries(counters.hold);
+  for (const [agent, total] of hold.length ? hold : [['', 0]]) reg.set('swarm_hold_total', { agent }, total);
+  reg.set('swarm_job_last_success_timestamp_seconds', {}, now / 1000);
+  reg.set('swarm_job_duration_seconds', {}, (now - startedAt) / 1000);
+  if (rateLimit !== null) reg.set('swarm_github_rate_limit_remaining', {}, rateLimit);
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  const startedAt = Date.now();
   const hours = (name, dflt) => Number(process.env[name] || dflt);
   const gh = fromEnv();
   // Old names first, so ensureLabel doesn't create today's label beside one that only needs renaming.
   const renamed = await migrateLabels(gh);
   for (const line of renamed) console.log(`renamed: ${line}`);
   for (const [name, color, description] of LABELS) await gh.ensureLabel(name, color, description);
-  const result = await sweep(gh, {
-    limits: {
-      claim: hours('CLAIM_MINUTES', 90),
-      ready: hours('READY_HOURS', 4),
-      review: hours('REVIEW_HOURS', 4),
-      fix: hours('FIX_HOURS', 2),
-      hold: hours('HOLD_HOURS', 24),
-      heartbeat: hours('HEARTBEAT_HOURS', 8),
-    },
-  });
+  const limits = {
+    claim: hours('CLAIM_MINUTES', 90),
+    ready: hours('READY_HOURS', 4),
+    review: hours('REVIEW_HOURS', 4),
+    fix: hours('FIX_HOURS', 2),
+    hold: hours('HOLD_HOURS', 24),
+    heartbeat: hours('HEARTBEAT_HOURS', 8),
+  };
+  const result = await sweep(gh, { limits });
   for (const f of result.fixed) console.log(`fixed: ${f}`);
   for (const o of result.overdue) console.log(`overdue: ${o.line}`);
-  await writeDesk(gh, result);
+  // DESK_COMMENTS=false: the desk's body is still rewritten, but nothing is commented.
+  const counters = await writeDesk(gh, { ...result, comments: process.env.DESK_COMMENTS !== 'false' });
+  // Last, and never fatal: the sweep's own work is done by now.
+  const reg = registry();
+  sweepMetrics(reg, { result, counters, migrated: renamed.length, limits, startedAt, rateLimit: gh.rateLimitRemaining() });
+  if (await push(reg, { job: 'swarm_sweep', repository: gh.repo })) console.log('Pushed metrics.');
   console.log(`${result.fixed.length} fixed, ${result.overdue.length} overdue.`);
 }

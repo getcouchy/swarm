@@ -5,7 +5,8 @@ import {
   agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, focus, lockLapsed, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
 } from './rules.mjs';
 import { client } from './github.mjs';
-import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, writeDesk } from './sweep.mjs';
+import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from './sweep.mjs';
+import { registry } from './metrics.mjs';
 import { claim, firstJob, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
 import { report } from './reviewed.mjs';
 import { likelyWork, sync, toolsStale } from './preflight.mjs';
@@ -341,6 +342,50 @@ test('desk: created on the first run with a counters marker', async () => {
   const gh = fake();
   await writeDesk(gh, { desk: null, overdue: [], fixed: [], labelled: { needsHuman: [], hold: [] }, now: NOW });
   assert.match((await gh.issue(999)).body, /swarm-counters: /);
+});
+
+test('sweep metrics: one series per item, limits in seconds', () => {
+  const reg = registry();
+  sweepMetrics(reg, {
+    result: {
+      pulls: [{ number: 30, state: 'needs_review', agent: '' }], issues: [{ number: 3, state: 'locked', agent: 'claude' }],
+      locks: [{ number: 3, agent: 'claude', type: 'issue', since: ago(1) }], heartbeats: [{ agent: 'grok/1', at: ago(20) }],
+      overdue: [{ kind: 'quiet', number: null, agent: 'grok/1', since: ago(20) }, { kind: 'stages', number: 6, agent: '', since: null }],
+      fixedCounts: { lock_lapsed: 2, lock_doubled: 1 },
+    },
+    counters: { needsHuman: { 'issue|claude': 3 }, hold: {} }, migrated: 0, limits: LIMITS, now: NOW, startedAt: NOW - 4000, rateLimit: 4321,
+  });
+  const out = reg.render();
+  assert.match(out, /swarm_pulls\{number="30",state="needs_review",agent=""\} 1\n/);
+  assert.match(out, /swarm_lock_age_seconds\{number="3",agent="claude",type="issue"\} 3600\n/);
+  assert.match(out, /swarm_overdue_age_seconds\{number="",kind="quiet",agent="grok\/1"\} 72000\n/);
+  assert.match(out, /swarm_overdue_age_seconds\{number="6",kind="stages",agent=""\} 0\n/);
+  assert.match(out, /swarm_limit_seconds\{limit="claim"\} 5400\n/);
+  assert.match(out, /swarm_limit_seconds\{limit="heartbeat"\} 28800\n/);
+  assert.match(out, /swarm_sweep_fixed\{action="label_migrated"\} 0\n/);
+  assert.match(out, /swarm_needs_human_total\{type="issue",agent="claude"\} 3\n/);
+  assert.match(out, /swarm_hold_total\{agent=""\} 0\n/);
+  assert.match(out, /swarm_job_duration_seconds 4\n/);
+  assert.match(out, /swarm_github_rate_limit_remaining 4321\n/);
+});
+
+test('sweep metrics: an agent with several heartbeat comments reports its newest', () => {
+  const reg = registry();
+  sweepMetrics(reg, {
+    result: {
+      pulls: [], issues: [], locks: [], overdue: [], fixedCounts: { lock_lapsed: 0, lock_doubled: 0 },
+      heartbeats: [{ agent: 'grok', at: ago(16) }, { agent: 'grok', at: ago(8) }, { agent: 'grok', at: ago(14) }],
+    },
+    counters: { needsHuman: {}, hold: {} }, limits: LIMITS, now: NOW,
+  });
+  assert.match(reg.render(), new RegExp(`swarm_agent_last_tick_timestamp_seconds\\{agent="grok"\\} ${(NOW - 8 * 3_600_000) / 1000}\\n`));
+});
+
+test('client: remembers the rate limit left', async () => {
+  const gh = client({ token: 't', repo: 'a/b', fetchImpl: async () => ({ ok: true, status: 200, json: async () => [], headers: new Headers({ 'x-ratelimit-remaining': '4999' }) }) });
+  assert.equal(gh.rateLimitRemaining(), null);
+  await gh.labels();
+  assert.equal(gh.rateLimitRemaining(), 4999);
 });
 
 test('pullState: first match wins', () => {
