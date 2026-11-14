@@ -1,0 +1,110 @@
+name: Chart
+
+# charts/swarm, from pull request to registry:
+#
+# - A pull request that changes the chart must bump `version` in Chart.yaml,
+#   since a published version is never replaced.
+# - A push to main that changes the chart publishes that version to
+#   oci://ghcr.io/<owner>/charts and tags the commit chart-v<version>. A
+#   version that is already tagged is left alone.
+# - Run workflow does the same for main as it is, to retry a failed publish.
+#
+# Test lints and renders the chart on every pull request.
+on:
+  pull_request:
+    paths:
+      - charts/swarm/**
+      - .github/workflows/chart.yml
+  push:
+    branches: [main]
+    paths:
+      - charts/swarm/**
+      - .github/workflows/chart.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chart-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: A changed chart has a new version
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          version=$(sed -n 's/^version: *//p' charts/swarm/Chart.yaml)
+          # The README ships in the package but changes nothing that runs.
+          changed=$(git diff --name-only "$BASE...HEAD" -- charts/swarm ':!charts/swarm/README.md')
+          if [ -z "$changed" ]; then
+            echo "The chart is unchanged."
+          elif git rev-parse -q --verify "refs/tags/chart-v$version" >/dev/null; then
+            echo "::error file=charts/swarm/Chart.yaml::chart-v$version is already published; bump version for a change to:%0A$changed"
+            exit 1
+          else
+            echo "Merging this publishes swarm $version."
+          fi
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # the chart-v tag
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Version
+        id: version
+        run: |
+          version=$(sed -n 's/^version: *//p' charts/swarm/Chart.yaml)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/chart-v$version" >/dev/null; then
+            echo "::notice::chart-v$version is already published; nothing to do."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        if: steps.version.outputs.publish == 'true'
+        with:
+          version: v4.2.0
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.publish == 'true'
+        with:
+          node-version: 22
+      - name: Test
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          npm test
+          helm lint charts/swarm --set github.repository=acme/app
+      - name: Package and push
+        if: steps.version.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          OWNER: ${{ github.repository_owner }}
+          TOKEN: ${{ github.token }}
+        run: |
+          echo "$TOKEN" | helm registry login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          helm package charts/swarm
+          helm push "swarm-$VERSION.tgz" "oci://ghcr.io/$OWNER/charts"
+      # After the push: a tag means the version is in the registry.
+      - name: Tag
+        if: steps.version.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git tag "chart-v$VERSION"
+          git push origin "chart-v$VERSION"

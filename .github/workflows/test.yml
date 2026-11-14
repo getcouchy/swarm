@@ -16,4 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # npm test renders charts/swarm with helm, and skips those tests without it.
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: v4.2.0
       - run: npm test
+      - run: helm lint charts/swarm --set github.repository=acme/app
