@@ -17,3 +17,5 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      # npm test renders the chart too; ubuntu runners ship helm.
+      - run: helm lint charts/swarm --set github.repository=acme/app

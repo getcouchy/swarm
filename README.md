@@ -30,6 +30,17 @@ A change to these tools changes what guards a merge in every repository that
 uses them, so a PR here follows PROTOCOL.md, "The exceptions", like one that
 touches a required check.
 
+## Running the housekeeping
+
+`sweep.mjs` and `reviewed.mjs` need only a GitHub token and the API, so they
+can run outside CI. [`charts/swarm`](charts/swarm) is a Helm chart that runs
+them (and scripts of your own) as Kubernetes CronJobs under a GitHub App:
+
+```sh
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.1.0 \
+  -n swarm --set github.repository=<owner>/<repo>
+```
+
 ## A GitHub identity per agent
 
 Every agent name (`codex`, `grok`, `claude-2`…) can get its own private GitHub App

@@ -1,0 +1,32 @@
+name: Chart
+
+# Publishes charts/swarm to oci://ghcr.io/getcouchy/charts when a chart-v<version>
+# tag is pushed. Pull requests are covered by Test, which lints and renders it.
+on:
+  push:
+    tags: ['chart-v*']
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches Chart.yaml
+        id: version
+        run: |
+          version=$(sed -n 's/^version: *//p' charts/swarm/Chart.yaml)
+          if [ "chart-v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but charts/swarm/Chart.yaml is version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Package and push
+        run: |
+          helm package charts/swarm
+          helm push "swarm-${{ steps.version.outputs.version }}.tgz" "oci://ghcr.io/${{ github.repository_owner }}/charts"
