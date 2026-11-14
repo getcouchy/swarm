@@ -16,9 +16,9 @@
 import { pathToFileURL } from 'node:url';
 import { fromEnv } from './github.mjs';
 import {
-  AGENT_PREFIX, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, READY, REVIEWED, SQUAD, STAGES, EPIC, canonical, claimWinner, fixReasons,
-  heartbeatId, isReviewOnly, isSwarmPull, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  providers, whyNotClaimable, FAILED,
+  AGENT_PREFIX, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, READY, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, fixReasons,
+  heartbeatId, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
+  providers, whyNotClaimable, FAILED, NIGHTLY,
 } from './rules.mjs';
 
 // GitHub refuses a label description over 100 characters, and a refused
@@ -74,12 +74,26 @@ const age = (h) => (h >= 48 ? `${Math.round(h / 24)} days` : `${Math.round(h)} h
 
 /**
  * limits: { claim (minutes), ready, review, fix, hold, heartbeat } in hours.
- * Returns { fixed: [line], overdue: [{ key, section, line }] }.
+ * Returns what the desk shows, { fixed: [line], overdue: [{ key, section, line }], desk },
+ * and the same facts for the metrics (docs/metrics.md):
+ *   overdue[]    also { kind, number, agent, since }: the key's prefix, the item
+ *                (null for a quiet agent), who it is with, and when its wait began
+ *   pulls        [{ number, state, agent }], every PR the agents work on or review
+ *   issues       [{ number, state: 'claimable' | 'locked', agent }], approved issues
+ *   locks        [{ number, agent, type: 'issue' | 'pull', since }], still on after this run
+ *   heartbeats   [{ agent, at }]
+ *   fixedCounts  { lock_lapsed, lock_doubled }
+ *   labelled     { needsHuman: [{ number, type, agent }], hold: [{ number, agent }] }
  */
 export async function sweep(gh, { now = Date.now(), limits }) {
   const fixed = [];
   const overdue = [];
-  const flag = (section, key, line) => overdue.push({ section, key, line });
+  const flag = (section, key, line, { number = null, agent = '', since = null } = {}) =>
+    overdue.push({ section, key, line, kind: key.split(':')[0], number, agent, since });
+  const typeOf = (item) => (item.pull_request || item.head ? 'pull' : 'issue');
+  let locks = [];
+  const fixedCounts = { lock_lapsed: 0, lock_doubled: 0 };
+  const states = new Map(); // PR number -> its state, where a loop below worked it out
 
   const [issues, pulls] = await Promise.all([gh.openIssues(), gh.openPulls()]);
   const linked = linkedPulls(pulls);
@@ -99,7 +113,11 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     const events = await gh.events(item.number);
     for (const holder of providers(item)) {
       const lockedAt = lastLabeled(events, (n) => n === AGENT_PREFIX + holder);
-      if (!lockLapsed({ lockedAt, now, minutes: limits.claim })) continue;
+      if (!lockLapsed({ lockedAt, now, minutes: limits.claim })) {
+        locks.push({ number: item.number, agent: holder, type: typeOf(item), since: lockedAt });
+        continue;
+      }
+      fixedCounts.lock_lapsed += 1;
       await gh.removeLabel(item.number, AGENT_PREFIX + holder);
       fixed.push(`#${item.number}: ${holder}'s lock had been on for over ${limits.claim} minutes; removed.`);
       item.labels = item.labels.filter((l) => canonical(l.name ?? l) !== AGENT_PREFIX + holder);
@@ -112,10 +130,12 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     for (const loser of held.filter((p) => p !== claimWinner(issue))) {
       await gh.removeLabel(issue.number, AGENT_PREFIX + loser);
       fixed.push(`#${issue.number}: ${held.join(' and ')} both held it; ${claimWinner(issue)} keeps it.`);
+      fixedCounts.lock_doubled += 1;
+      locks = locks.filter((l) => !(l.number === issue.number && l.agent === loser));
     }
     const holder = claimWinner(issue);
     if (!labelNames(issue).includes(READY)) {
-      flag('Claims', `unapproved:${issue.number}`, `#${issue.number} is held by ${holder} but is not \`${READY}\`.`);
+      flag('Claims', `unapproved:${issue.number}`, `#${issue.number} is held by ${holder} but is not \`${READY}\`.`, { number: issue.number, agent: holder });
     }
   }
 
@@ -129,7 +149,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     const waited = hoursSince(since, now);
     if (waited <= limits.ready) continue;
     if ((await gh.blockers(issue)).length) continue;
-    flag('Waiting for an agent', `ready:${issue.number}`, `#${issue.number} has been ready for ${age(waited)} and no agent has taken it.`);
+    flag('Waiting for an agent', `ready:${issue.number}`, `#${issue.number} has been ready for ${age(waited)} and no agent has taken it.`, { number: issue.number, since });
   }
 
   // Pull requests an agent opened.
@@ -137,7 +157,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   for (const pr of pulls.filter((p) => isSwarmPull(p) && p.draft && !providers(p).length)) {
     const pushedAt = (await gh.commit(pr.head.sha)).commit.committer.date;
     if (hoursSince(pushedAt, now) > limits.fix) {
-      flag('Unfinished work nobody is on', `draft:${pr.number}`, `#${pr.number} is a draft with no push for ${age(hoursSince(pushedAt, now))} and no agent on it.`);
+      flag('Unfinished work nobody is on', `draft:${pr.number}`, `#${pr.number} is a draft with no push for ${age(hoursSince(pushedAt, now))} and no agent on it.`, { number: pr.number, agent: agentOf(pr), since: pushedAt });
     }
   }
 
@@ -145,10 +165,13 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   for (const pr of pulls.filter((p) => isReviewOnly(p) && !p.draft)) {
     const [reviews, commit] = await Promise.all([gh.reviews(pr.number), gh.commit(pr.head.sha)]);
     const pushedAt = commit.commit.committer.date;
-    if (needsReview(pr, reviews, pushedAt) && hoursSince(lastVerdict(pr, reviews) ? pushedAt : pr.created_at, now) > limits.review) {
+    states.set(pr.number, pullState(pr, { reviews, pushedAt, gated }));
+    const waitingSince = lastVerdict(pr, reviews) ? pushedAt : pr.created_at;
+    if (needsReview(pr, reviews, pushedAt) && hoursSince(waitingSince, now) > limits.review) {
       flag('Pull requests waiting for review', `review:${pr.number}`, lastVerdict(pr, reviews)
         ? `#${pr.number} (review-only) has waited ${age(hoursSince(pushedAt, now))} for another review since its author pushed.`
-        : `#${pr.number} (review-only) has been open ${age(hoursSince(pr.created_at, now))} with no review from an agent.`);
+        : `#${pr.number} (review-only) has been open ${age(hoursSince(pr.created_at, now))} with no review from an agent.`,
+      { number: pr.number, agent: agentOf(pr), since: waitingSince });
     }
   }
 
@@ -157,13 +180,15 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     const [reviews, checks, commit] = await Promise.all([gh.reviews(pr.number), gh.checks(pr.head.sha), gh.commit(pr.head.sha)]);
     const pushedAt = commit.commit.committer.date;
     const reasons = fixReasons(pr, { checks, reviews, pushedAt });
+    const item = { number: pr.number, agent: agentOf(pr) };
+    states.set(pr.number, pullState(pr, { reviews, checks, pushedAt, gated }));
     if (mergeHeld(pr, { reviews, checks, gated })) {
-      flag('Pull requests set to merge that should not be', `held:${pr.number}`, `#${pr.number} (${author}) has auto-merge on, but ${mergeHeld(pr, { reviews, checks, gated })}.`);
+      flag('Pull requests set to merge that should not be', `held:${pr.number}`, `#${pr.number} (${author}) has auto-merge on, but ${mergeHeld(pr, { reviews, checks, gated })}.`, item);
     }
     if (labelNames(pr).includes(HOLD)) {
       const since = lastLabeled(await gh.events(pr.number), (n) => n === HOLD) ?? pr.created_at;
       if (hoursSince(since, now) > limits.hold) {
-        flag('Pull requests held from merging', `hold:${pr.number}`, `#${pr.number} (${author}) has carried \`${HOLD}\` for ${age(hoursSince(since, now))}.`);
+        flag('Pull requests held from merging', `hold:${pr.number}`, `#${pr.number} (${author}) has carried \`${HOLD}\` for ${age(hoursSince(since, now))}.`, { ...item, since });
       }
     }
     if (reasons.length) {
@@ -175,7 +200,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
         labelNames(pr).includes(CONFLICT) ? lastLabeled(await gh.events(pr.number), (n) => n === CONFLICT) : null,
       ].filter(Boolean).sort().at(-1);
       if (hoursSince(since, now) > limits.fix) {
-        flag('Pull requests that need work', `fix:${pr.number}`, `#${pr.number} (${author}): ${reasons.join('; ')}, and no push for ${age(hoursSince(since, now))}.`);
+        flag('Pull requests that need work', `fix:${pr.number}`, `#${pr.number} (${author}): ${reasons.join('; ')}, and no push for ${age(hoursSince(since, now))}.`, { ...item, since });
       }
     }
     // Auto-merge is the default: off for longer than the limit is overdue.
@@ -183,13 +208,14 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     if (!reasons.length && !pr.auto_merge && mergeReady(pr, { reviews, checks, gated }) && hoursSince(mergeSince, now) > limits.review) {
       flag('Pull requests not set to merge', `merge:${pr.number}`, lastVerdict(pr, reviews)
         ? `#${pr.number} (${author}) was reviewed ok ${age(hoursSince(mergeSince, now))} ago and auto-merge is off.`
-        : `#${pr.number} (${author}) has been open ${age(hoursSince(mergeSince, now))} and auto-merge is off.`);
+        : `#${pr.number} (${author}) has been open ${age(hoursSince(mergeSince, now))} and auto-merge is off.`, { ...item, since: mergeSince });
     }
     if (!reasons.length && needsReview(pr, reviews, pushedAt) && hoursSince(lastVerdict(pr, reviews) ? pushedAt : pr.created_at, now) > limits.review) {
       const again = lastVerdict(pr, reviews);
       flag('Pull requests waiting for review', `review:${pr.number}`, again
         ? `#${pr.number} (${author}) has waited ${age(hoursSince(pushedAt, now))} for another review since its author pushed.`
-        : `#${pr.number} (${author}) has been open ${age(hoursSince(pr.created_at, now))} with no review from an agent or a person.`);
+        : `#${pr.number} (${author}) has been open ${age(hoursSince(pr.created_at, now))} with no review from an agent or a person.`,
+      { ...item, since: again ? pushedAt : pr.created_at });
     }
   }
 
@@ -198,26 +224,41 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     const names = labelNames(issue);
     const stages = STAGES.filter((s) => names.includes(s));
     if (names.includes(SQUAD) && !names.includes(EPIC) && stages.length > 1) {
-      flag('Labels', `stages:${issue.number}`, `#${issue.number} carries ${stages.map((s) => `\`${s}\``).join(' and ')}; it should have one.`);
+      flag('Labels', `stages:${issue.number}`, `#${issue.number} carries ${stages.map((s) => `\`${s}\``).join(' and ')}; it should have one.`, { number: issue.number, agent: agentOf(issue) });
     }
   }
 
   // Anything an agent handed to a person.
+  const labelled = { needsHuman: [], hold: [] };
   for (const item of [...issues, ...pulls].filter((i) => labelNames(i).includes(NEEDS_HUMAN))) {
-    flag('Needs you', `human:${item.number}`, `#${item.number} ${item.title}`);
+    const since = lastLabeled(await gh.events(item.number), (n) => n === NEEDS_HUMAN) ?? item.created_at;
+    flag('Needs you', `human:${item.number}`, `#${item.number} ${item.title}`, { number: item.number, agent: agentOf(item), since });
+    labelled.needsHuman.push({ number: item.number, type: typeOf(item), agent: agentOf(item) });
   }
+  for (const pr of pulls.filter((p) => labelNames(p).includes(HOLD))) labelled.hold.push({ number: pr.number, agent: agentOf(pr) });
 
   // Agents that stopped ticking.
   const desk = issues.find((i) => labelNames(i).includes(DESK)) ?? null;
+  const heartbeats = [];
   if (desk) {
     for (const c of await gh.comments(desk.number)) {
       const id = heartbeatId(c);
+      if (id) heartbeats.push({ agent: id, at: c.updated_at });
       if (id && hoursSince(c.updated_at, now) > limits.heartbeat) {
-        flag('Agents not ticking', `quiet:${id}`, `\`${id}\` last ticked ${age(hoursSince(c.updated_at, now))} ago. Check its scheduled task, or delete its comment below if it is retired.`);
+        flag('Agents not ticking', `quiet:${id}`, `\`${id}\` last ticked ${age(hoursSince(c.updated_at, now))} ago. Check its scheduled task, or delete its comment below if it is retired.`, { agent: id, since: c.updated_at });
       }
     }
   }
-  return { fixed, overdue, desk };
+
+  // An approved issue is locked or free to take. Blockers aren't asked about here: that would cost a request per issue.
+  const approved = (i) => labelNames(i).includes(READY) || labelNames(i).includes(NIGHTLY);
+  const issueStates = issues.filter(approved).flatMap((i) => {
+    if (providers(i).length) return [{ number: i.number, state: 'locked', agent: claimWinner(i) }];
+    return whyNotClaimable(i, ctx) ? [] : [{ number: i.number, state: 'claimable', agent: '' }];
+  });
+  const pullStates = pulls.filter(isReviewable)
+    .map((pr) => ({ number: pr.number, state: states.get(pr.number) ?? (pr.draft ? 'draft' : 'waiting'), agent: agentOf(pr) }));
+  return { fixed, overdue, desk, pulls: pullStates, issues: issueStates, locks, heartbeats, fixedCounts, labelled };
 }
 
 export function deskBody(overdue, now) {

@@ -352,6 +352,26 @@ export function fixReasons(pr, { checks = [], reviews = [], pushedAt = null } = 
   return reasons;
 }
 
+/**
+ * The one state a pull request is in, for the metrics (docs/metrics.md): the
+ * first of these that holds. A held PR reads `needs_human` or `hold` whatever
+ * else is true of it, since nothing else moves until the label comes off.
+ */
+export function pullState(pr, { reviews = [], checks = [], pushedAt = null, gated = false } = {}) {
+  const names = labelNames(pr);
+  if (pr.draft) return 'draft';
+  if (names.includes(NEEDS_HUMAN)) return 'needs_human';
+  if (names.includes(HOLD)) return 'hold';
+  if (fixReasons(pr, { checks, reviews, pushedAt }).length) return 'needs_work';
+  if (needsReview(pr, reviews, pushedAt)) return 'needs_review';
+  if (pr.auto_merge) return 'merging';
+  if (mergeReady(pr, { reviews, checks, gated })) return 'merge_ready';
+  return 'waiting';
+}
+
+/** The agent an item is with: whoever holds its lock, else the agent whose bot opened it, else ''. */
+export const agentOf = (item) => providers(item)[0] ?? agentFromLogin(item.user?.login) ?? '';
+
 export const hoursSince = (iso, now) => (now - Date.parse(iso)) / HOUR;
 
 /**

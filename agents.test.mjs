@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  agentFromLogin, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, focus, lockLapsed, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
+  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, focus, lockLapsed, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
 } from './rules.mjs';
 import { client } from './github.mjs';
 import { LABELS, deskBody, migrateLabels, sweep, writeDesk } from './sweep.mjs';
@@ -293,6 +293,34 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
   const desk = await gh.issue(90);
   assert.match(desk.body, /### Needs you\n\n- #7 Issue 7/);
   assert.match(desk.body, /agent-desk-state: \["draft:36","fix:31","held:33","hold:34","human:7","quiet:grok\/1","ready:4","review:30","review:34","stages:6"\]/);
+
+  const by = (rows) => Object.fromEntries(rows.map((r) => [r.number, r]));
+  assert.equal(by(result.pulls)[36].state, 'draft');
+  assert.equal(by(result.pulls)[33].state, 'hold');
+  assert.equal(by(result.pulls)[31].state, 'needs_work');
+  assert.equal(by(result.pulls)[30].state, 'needs_review');
+  assert.equal(by(result.pulls)[30].agent, '');
+  assert.deepEqual(by(result.issues)[3], { number: 3, state: 'locked', agent: 'claude' });
+  assert.equal(by(result.issues)[4].state, 'claimable');
+  assert.deepEqual(result.locks.map((l) => `${l.type}:${l.number}:${l.agent}`).sort(), ['issue:2:codex', 'issue:3:claude']);
+  assert.deepEqual(result.heartbeats.map((h) => h.agent).sort(), ['codex/1', 'grok/1']);
+  assert.deepEqual(result.fixedCounts, { lock_lapsed: 2, lock_doubled: 1 });
+  assert.deepEqual(result.labelled.needsHuman, [{ number: 7, type: 'issue', agent: '' }]);
+  assert.deepEqual(result.labelled.hold.map((h) => h.number).sort(), [33, 34]);
+  const fix = result.overdue.find((o) => o.key === 'fix:31');
+  assert.deepEqual([fix.kind, fix.number, fix.since], ['fix', 31, ago(3)]);
+  const quiet = result.overdue.find((o) => o.key === 'quiet:grok/1');
+  assert.deepEqual([quiet.number, quiet.agent], [null, 'grok/1']);
+});
+
+test('pullState: first match wins', () => {
+  const ctx = { reviews: [], checks: [], pushedAt: ago(1), gated: false };
+  assert.equal(pullState(pull(1, ['swarm/pr', 'swarm/hold'], { draft: true }), ctx), 'draft');
+  assert.equal(pullState(pull(1, ['swarm/pr', 'swarm/hold', 'swarm/needs-human']), ctx), 'needs_human');
+  assert.equal(pullState(pull(1, ['swarm/pr', 'swarm/hold']), ctx), 'hold');
+  assert.equal(pullState(pull(1, ['swarm/pr', 'conflicts-with-main']), ctx), 'needs_work');
+  assert.equal(agentOf(pull(1, ['swarm/pr'], { user: { login: 'couchy-codex[bot]' } })), 'codex');
+  assert.equal(agentOf(pull(1, ['swarm/pr'])), '');
 });
 
 test('desk: nothing new means no comment; an empty desk says so', async () => {
