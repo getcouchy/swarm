@@ -61,3 +61,23 @@ test('secretEnv needs extraSecretName', { skip }, () => {
   assert.notEqual(r.status, 0);
   assert.match(r.stderr, /extraSecretName/);
 });
+
+test('github.ref does not move the built-in jobs off main', { skip }, () => {
+  const { stdout } = render(repo, 'github.ref=trunk');
+  assert.match(stdout, /name: SOURCE_REF\s+value: "main"/);
+  assert.doesNotMatch(stdout, /name: SOURCE_REF\s+value: "trunk"/);
+});
+
+test('a job needs a schedule and a script', { skip }, () => {
+  const noRun = render(repo, 'jobs.mine.schedule=0 * * * *');
+  assert.notEqual(noRun.status, 0);
+  assert.match(noRun.stderr, /jobs\.mine\.run/);
+  const noSchedule = render(repo, 'jobs.mine.run={x.mjs}');
+  assert.notEqual(noSchedule.status, 0);
+  assert.match(noSchedule.stderr, /jobs\.mine\.schedule/);
+});
+
+test('script arguments render as strings', { skip }, () => {
+  const { stdout } = render(repo, 'jobs.mine.schedule=0 * * * *', 'jobs.mine.run={x.mjs,--n,5}');
+  assert.match(stdout, /- "x\.mjs"\n\s+- "--n"\n\s+- "5"/);
+});

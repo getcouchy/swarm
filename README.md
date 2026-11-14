@@ -41,6 +41,9 @@ helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.1.
   -n swarm --set github.repository=<owner>/<repo>
 ```
 
+Its [README](charts/swarm/README.md) has the GitHub App and the Secret to
+create first.
+
 ## A GitHub identity per agent
 
 Every agent name (`codex`, `grok`, `claude-2`…) can get its own private GitHub App

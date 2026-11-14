@@ -101,5 +101,7 @@ swarm:
 
 Bump `version` in `Chart.yaml`, merge, and push the tag `chart-v<version>`.
 The Chart workflow packages the chart and pushes it to
-`oci://ghcr.io/getcouchy/charts`. `npm test` renders the chart when `helm` is
+`oci://ghcr.io/getcouchy/charts`. After the first push, set the `charts/swarm`
+package's visibility to public in the org's package settings; until then
+installing it needs `helm registry login ghcr.io`. `npm test` renders the chart when `helm` is
 installed.

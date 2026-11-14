@@ -34,7 +34,8 @@ defaults:
 #   run        the script and its arguments, from the root of `source`
 #   source     the repository that holds the script (github.repository when
 #              unset; another one must be public or in the App's installation)
-#   ref        the ref of `source` to run (github.ref when unset)
+#   ref        the ref of `source` to run (github.ref when unset; the two
+#              built-in jobs set main, getcouchy/swarm's branch)
 #   env        plain variables
 #   secretEnv  maps a variable to a key of extraSecretName
 #   enabled    false removes the CronJob; `suspend: true` keeps it but paused
@@ -51,6 +52,7 @@ jobs:
     schedule: "*/2 * * * *"
     activeDeadlineSeconds: 110
     source: getcouchy/swarm
+    ref: main
     run: [reviewed.mjs]
     env: {}
     # REVIEWED_CREATOR: my-app[bot]   # only this login's status counts as already posted
@@ -59,6 +61,7 @@ jobs:
   agent-sweep:
     schedule: "*/10 * * * *"
     source: getcouchy/swarm
+    ref: main
     run: [sweep.mjs]
     env: {}
     # AGENT_CLAIM_MINUTES, AGENT_READY_HOURS... override the script's defaults.

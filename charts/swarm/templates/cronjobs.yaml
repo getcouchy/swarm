@@ -10,7 +10,7 @@ metadata:
     {{- include "swarm.labels" $ | nindent 4 }}
     app.kubernetes.io/component: {{ $name }}
 spec:
-  schedule: {{ $job.schedule | quote }}
+  schedule: {{ required (printf "jobs.%s.schedule is required" $name) $job.schedule | quote }}
   {{- with $job.timeZone }}
   timeZone: {{ . }}
   {{- end }}
@@ -46,7 +46,9 @@ spec:
               image: {{ $.Values.image }}
               command: ["node", "/opt/swarm/run.mjs"]
               args:
-                {{- toYaml $job.run | nindent 16 }}
+                {{- range required (printf "jobs.%s.run is required: the script and its arguments" $name) $job.run }}
+                - {{ . | toString | quote }}
+                {{- end }}
               env:
                 - name: GITHUB_REPOSITORY
                   value: {{ required "github.repository is required: the owner/name of the repository the jobs work on" $.Values.github.repository | quote }}
