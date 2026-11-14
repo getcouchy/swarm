@@ -406,9 +406,21 @@ waiting behind the rest.
 
 ## What watches the agents
 
-Each home repository's `.github/workflows/agent-sweep.yml` runs `sweep.mjs`
-every hour (in getcouchy/couchy, see `docs/ci.md`, "Agent sweep"). It removes a lapsed claim and settles a doubled one, and it keeps the
+A scheduled job runs `sweep.mjs` for a home repository. For getcouchy/couchy
+it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
+"Agent sweep"); getcouchy/couchy-agent has a desk but no sweep yet, so a label
+left on there stays until someone removes it. It removes a lapsed claim and settles a doubled one, and it keeps the
 **Agent desk** issue current with whatever is overdue: an approved issue no
 agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
 labelled `swarm/needs-human`, an agent that stopped ticking.
+
+Another job there runs `reviewed.mjs` every 2 minutes and posts the `reviewed`
+status ("Merging") on every open PR's head. A PR whose newest head has no
+`reviewed` status after a few minutes means that job is failing, not that the
+review is missing: say so in your heartbeat.
+
+`page.mjs` sends the page for `swarm/needs-human`. In getcouchy/couchy it is
+not running today (`docs/ci.md`, "Needs-human page"), so the label reaches the
+owner through the desk's "Needs you" list alone. Use it as this file says all
+the same.
