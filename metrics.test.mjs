@@ -11,6 +11,19 @@ test('docs/metrics.md lists exactly the defined metrics', () => {
   assert.deepEqual([...named].sort(), Object.keys(METRICS).sort());
 });
 
+test('dashboard: every swarm_ metric it queries is defined; none is left out', () => {
+  const text = readFileSync(new URL('./charts/swarm/dashboards/swarm.json', import.meta.url), 'utf8');
+  const dash = JSON.parse(text);
+  assert.equal(dash.uid, 'swarm');
+  const used = new Set(text.match(/swarm_[a-z_]+/g).filter((n) => !['swarm_sweep', 'swarm_reviewed'].includes(n)));
+  for (const name of used) assert.ok(METRICS[name], `${name} is not defined`);
+  for (const name of Object.keys(METRICS)) assert.ok(used.has(name), `${name} is on no panel`);
+  assert.deepEqual(dash.templating.list.map((v) => v.name), ['prometheus', 'loki', 'repository', 'agent', 'namespace']);
+  // Every Prometheus query is narrowed to the chosen repository, or it would mix repositories.
+  const exprs = dash.panels.flatMap((p) => p.targets ?? []).filter((t) => t.datasource.type === 'prometheus').map((t) => t.expr);
+  for (const expr of exprs.filter((e) => e.includes('swarm_'))) assert.match(expr, /repository="\$repository"/, expr);
+});
+
 test('render: help, type, escaped labels', () => {
   const r = registry();
   r.set('swarm_agent_last_tick_timestamp_seconds', { agent: 'grok/1' }, 1700000000);
