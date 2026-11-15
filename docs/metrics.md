@@ -46,7 +46,7 @@ series (`count by (state) (swarm_pulls)`).
 | `swarm_pulls` | gauge | `number`, `state`, `agent` | 1 for each open pull request the agents work on or review. |
 | `swarm_issues` | gauge | `number`, `state`, `agent` | 1 for each approved open issue (`couchy-ux/approved` or `ios-sim/nightly`): `locked` when an agent holds it, `claimable` when one could take it. An issue that is neither is left out: an epic, one with a pull request open for it, one marked `swarm/needs-human` or `swarm/hands-off`. Blockers are not looked up, so a blocked issue reads `claimable`. |
 | `swarm_lock_age_seconds` | gauge | `number`, `agent`, `type` | How long the agent's lock has been on. `type` is `issue` or `pull`. |
-| `swarm_overdue_age_seconds` | gauge | `number`, `kind`, `agent` | One series for each line on the desk: how long the item has been in that condition. 0 where the sweep has no time to measure from. An agent with several stale heartbeat comments has several lines on the desk and one series here. |
+| `swarm_overdue_age_seconds` | gauge | `number`, `kind`, `agent` | One series for each line on the desk: how long the item has been in that condition. 0 where the sweep has no time to measure from. An agent with several heartbeat comments has one line on the desk, from its newest. |
 | `swarm_limit_seconds` | gauge | `limit` | The limits the sweep ran with: `claim`, `ready`, `review`, `fix`, `hold`, `heartbeat`. |
 | `swarm_sweep_fixed` | gauge | `action` | What the last run fixed: `lock_lapsed`, `lock_doubled`, `label_migrated`. |
 | `swarm_needs_human_total` | counter | `type`, `agent` | Times `swarm/needs-human` went onto an issue or pull request. |

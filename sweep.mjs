@@ -249,9 +249,14 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     for (const c of await gh.comments(desk.number)) {
       const id = heartbeatId(c);
       if (id) heartbeats.push({ agent: id, at: c.updated_at });
-      if (id && hoursSince(c.updated_at, now) > limits.heartbeat) {
-        flag('Agents not ticking', `quiet:${id}`, `\`${id}\` last ticked ${age(hoursSince(c.updated_at, now))} ago. Check its scheduled task, or delete its comment below if it is retired.`, { agent: id, since: c.updated_at });
-      }
+    }
+  }
+  // An agent can have left more than one heartbeat comment; its newest is when it last ticked, and it gets one line.
+  const newest = new Map();
+  for (const h of heartbeats) if (!newest.has(h.agent) || Date.parse(h.at) > Date.parse(newest.get(h.agent))) newest.set(h.agent, h.at);
+  for (const [id, at] of newest) {
+    if (hoursSince(at, now) > limits.heartbeat) {
+      flag('Agents not ticking', `quiet:${id}`, `\`${id}\` last ticked ${age(hoursSince(at, now))} ago. Check its scheduled task, or delete its comment below if it is retired.`, { agent: id, since: at });
     }
   }
 

@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
 
 const chart = fileURLToPath(new URL('./charts/swarm', import.meta.url));
 const skip = spawnSync('helm', ['version'], { encoding: 'utf8' }).status === 0 ? false : 'helm is not installed';
@@ -86,4 +87,16 @@ test('metrics.pushgatewayUrl reaches every job, and is absent by default', { ski
 test('script arguments render as strings', { skip }, () => {
   const { stdout } = render(repo, 'jobs.mine.schedule=0 * * * *', 'jobs.mine.run={x.mjs,--n,5}');
   assert.match(stdout, /- "x\.mjs"\n\s+- "--n"\n\s+- "5"/);
+});
+
+// getcouchy/couchy's deployment (getcouchy/ops, k8s/charts/couchy-swarm) runs
+// the built-in jobs' scripts from this repository's root by path. Moving or
+// renaming one stops those CronJobs, and with agent-reviewed stopped no agent
+// pull request can merge (the 2026-11-14 outage). Move a script only together
+// with a change to charts/swarm/values.yaml and a new chart release.
+test('every script the built-in jobs run exists', () => {
+  const values = readFileSync(new URL('./charts/swarm/values.yaml', import.meta.url), 'utf8');
+  const scripts = [...values.matchAll(/^\s+run: \[([^\],]+)/gm)].map((m) => m[1].trim());
+  assert.deepEqual(scripts.sort(), ['reviewed.mjs', 'sweep.mjs']);
+  for (const s of scripts) assert.ok(existsSync(new URL(`./${s}`, import.meta.url)), `${s} is named in charts/swarm/values.yaml but missing`);
 });
