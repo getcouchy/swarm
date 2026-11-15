@@ -314,6 +314,18 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
   assert.deepEqual([quiet.number, quiet.agent], [null, 'grok/1']);
 });
 
+test('sweep: an agent with several heartbeat comments is listed once, by its newest', async () => {
+  const comments = (...hours) => ({ 90: hours.map(([agent, h], i) => ({ id: i + 1, body: `<!-- agent-heartbeat: ${agent} -->`, updated_at: ago(h) })) });
+  const desk = issue(90, ['swarm/desk']);
+  const stale = await sweep(fake({ issues: [desk], comments: comments(['grok', 30], ['grok', 12], ['grok', 20]) }), { now: NOW, limits: LIMITS });
+  const quiet = stale.overdue.filter((o) => o.kind === 'quiet');
+  assert.deepEqual(quiet.map((o) => [o.key, o.since]), [['quiet:grok', ago(12)]]);
+  assert.match(quiet[0].line, /last ticked 12 hours ago/);
+  // A fresh comment beside stale ones means the agent is ticking.
+  const ticking = await sweep(fake({ issues: [desk], comments: comments(['grok', 30], ['grok', 1]) }), { now: NOW, limits: LIMITS });
+  assert.deepEqual(ticking.overdue.filter((o) => o.kind === 'quiet'), []);
+});
+
 test('counters: a newly labelled item adds one; the first run only records', () => {
   const now = { needsHuman: [{ number: 7, type: 'issue', agent: 'claude' }], hold: [{ number: 34, agent: '' }] };
   const first = countLabelled(readCounters('no marker here'), now);
