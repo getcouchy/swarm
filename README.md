@@ -51,7 +51,7 @@ can run outside CI. [`charts/swarm`](charts/swarm) is a Helm chart that runs
 them (and scripts of your own) as Kubernetes CronJobs under a GitHub App:
 
 ```sh
-helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.2.2 \
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.2.3 \
   -n swarm --set github.repository=<owner>/<repo>
 ```
 

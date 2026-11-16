@@ -1177,7 +1177,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum by (agent, type) (increase(tick_handoffs_total{kind=\"needs_human\", agent=~\"$agent\"}[1h]) and on (agent) tick_info{repo=\"$repository\"}) or (sum by (agent, type) (increase(swarm_needs_human_total{repository=\"$repository\", agent=~\"$agent\"}[1h])) unless on (agent) tick_handoffs_total)",
+          "expr": "sum by (agent, type) (increase(tick_handoffs_total{kind=\"needs_human\", repository=\"$repository\", agent=~\"$agent\"}[1h])) or (sum by (agent, type) (increase(swarm_needs_human_total{repository=\"$repository\", agent=~\"$agent\"}[1h])) unless on (agent) tick_handoffs_total)",
           "legendFormat": "{{agent}} {{type}}"
         }
       ],
@@ -1224,7 +1224,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum by (agent) (increase(tick_handoffs_total{kind=\"hold\", agent=~\"$agent\"}[1h]) and on (agent) tick_info{repo=\"$repository\"}) or (sum by (agent) (increase(swarm_hold_total{repository=\"$repository\", agent=~\"$agent\"}[1h])) unless on (agent) tick_handoffs_total)",
+          "expr": "sum by (agent) (increase(tick_handoffs_total{kind=\"hold\", repository=\"$repository\", agent=~\"$agent\"}[1h])) or (sum by (agent) (increase(swarm_hold_total{repository=\"$repository\", agent=~\"$agent\"}[1h])) unless on (agent) tick_handoffs_total)",
           "legendFormat": "{{agent}}"
         }
       ],
