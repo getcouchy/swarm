@@ -137,3 +137,10 @@ label of `tick_info`. "Since each agent last ticked" takes an agent's last run
 start from the runner, and its heartbeat comment only for an agent no runner
 reports. The Runner row shows runs by how they ended, runs in flight and each
 agent's last run duration, and is empty without a runner.
+
+"Locks", "Locks held" and the two handoff panels take an agent's numbers from
+its runner once the runner reports them (`tick_github_rate_limit_remaining`
+for locks, `tick_handoffs_total` for handoffs), and the sweep's only for an
+agent whose runner does not; both count the same locks and handoffs, so one
+agent never gets both. "On now" and "Last run" list the runner's jobs in
+flight and those of each agent's last run.

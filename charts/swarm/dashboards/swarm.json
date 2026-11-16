@@ -250,11 +250,11 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "count by (agent) (swarm_lock_age_seconds{repository=\"$repository\", agent=~\"$agent\"})",
+          "expr": "count by (agent) (tick_lock_held_timestamp_seconds{repository=\"$repository\", agent=~\"$agent\"}) or (count by (agent) (swarm_lock_age_seconds{repository=\"$repository\", agent=~\"$agent\"}) unless on (agent) tick_github_rate_limit_remaining)",
           "legendFormat": "{{agent}}"
         }
       ],
-      "description": "Issues and pull requests carrying each agent's swarm/agent/<name> label.",
+      "description": "Locks each agent holds: live from its tick runner, or from the swarm/agent/<name> labels the sweep reads for an agent no runner reports.",
       "gridPos": {
         "x": 0,
         "y": 7,
@@ -341,7 +341,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum by (type, number, agent) (swarm_lock_age_seconds{repository=\"$repository\", agent=~\"$agent\"})",
+          "expr": "sum by (type, number, agent) (time() - tick_lock_held_timestamp_seconds{repository=\"$repository\", agent=~\"$agent\"}) or sum by (type, number, agent) (swarm_lock_age_seconds{repository=\"$repository\", agent=~\"$agent\"} unless on (agent) tick_github_rate_limit_remaining)",
           "instant": true,
           "format": "table"
         }
@@ -352,7 +352,194 @@
         "w": 12,
         "h": 7
       },
-      "id": 5
+      "id": 5,
+      "description": "From each agent's tick runner, which knows the second a lock is taken and released, or from the sweep's swarm/agent/<name> labels for an agent no runner reports."
+    },
+    {
+      "type": "table",
+      "title": "On now",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "number"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open on GitHub",
+                    "targetBlank": true,
+                    "url": "https://github.com/${repository:raw}/issues/${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "For"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "For",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "agent": 0,
+              "task": 1,
+              "type": 2,
+              "number": 3,
+              "Value": 4
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum by (agent, task, type, number) (time() - tick_job_started_timestamp_seconds{repository=\"$repository\", agent=~\"$agent\"})",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "description": "The job each agent's tick runner has in flight, from agent.mjs's events. Empty for an agent no runner reports.",
+      "id": 33
+    },
+    {
+      "type": "table",
+      "title": "Last run",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "number"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open on GitHub",
+                    "targetBlank": true,
+                    "url": "https://github.com/${repository:raw}/issues/${__value.raw}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Took"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Took",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "agent": 0,
+              "task": 1,
+              "type": 2,
+              "number": 3,
+              "Value": 4
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum by (agent, task, type, number) (tick_run_last_job_seconds{repository=\"$repository\", agent=~\"$agent\"})",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 7
+      },
+      "description": "The jobs of each agent's last finished run, and how long each took.",
+      "id": 34
     },
     {
       "id": 6,
@@ -361,7 +548,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 21,
         "w": 24,
         "h": 1
       }
@@ -413,7 +600,7 @@
       "description": "Claimable: approved and nobody has taken it. Blockers are not looked up, so a blocked issue counts as claimable.",
       "gridPos": {
         "x": 0,
-        "y": 15,
+        "y": 22,
         "w": 12,
         "h": 7
       },
@@ -483,7 +670,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 15,
+        "y": 22,
         "w": 12,
         "h": 7
       },
@@ -496,7 +683,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 29,
         "w": 24,
         "h": 1
       }
@@ -543,7 +730,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 30,
         "w": 12,
         "h": 8
       },
@@ -613,7 +800,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 23,
+        "y": 30,
         "w": 12,
         "h": 8
       },
@@ -662,7 +849,7 @@
       "description": "The required `reviewed` status on each open pull request's head.",
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 38,
         "w": 12,
         "h": 7
       },
@@ -731,7 +918,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 31,
+        "y": 38,
         "w": 12,
         "h": 7
       },
@@ -744,7 +931,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 45,
         "w": 24,
         "h": 1
       }
@@ -798,7 +985,7 @@
       "description": "Open items carrying swarm/needs-human.",
       "gridPos": {
         "x": 0,
-        "y": 39,
+        "y": 46,
         "w": 4,
         "h": 8
       },
@@ -847,7 +1034,7 @@
       "description": "What the Agent desk lists, by section. docs/metrics.md in getcouchy/swarm says what each kind is.",
       "gridPos": {
         "x": 4,
-        "y": 39,
+        "y": 46,
         "w": 8,
         "h": 8
       },
@@ -938,7 +1125,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 39,
+        "y": 46,
         "w": 12,
         "h": 8
       },
@@ -951,7 +1138,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 47,
+        "y": 54,
         "w": 24,
         "h": 1
       }
@@ -990,14 +1177,14 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum by (agent, type) (increase(swarm_needs_human_total{repository=\"$repository\", agent=~\"$agent\"}[1h]))",
+          "expr": "sum by (agent, type) (increase(tick_handoffs_total{kind=\"needs_human\", agent=~\"$agent\"}[1h]) and on (agent) tick_info{repo=\"$repository\"}) or (sum by (agent, type) (increase(swarm_needs_human_total{repository=\"$repository\", agent=~\"$agent\"}[1h])) unless on (agent) tick_handoffs_total)",
           "legendFormat": "{{agent}} {{type}}"
         }
       ],
-      "description": "Times swarm/needs-human went onto an issue or pull request, by the agent it was with.",
+      "description": "Times swarm/needs-human went onto an issue or pull request, by the agent it was with. An agent's tick runner counts its handoffs as it makes them; the sweep's count is used only for an agent whose runner does not, since both count the same handoff.",
       "gridPos": {
         "x": 0,
-        "y": 48,
+        "y": 55,
         "w": 12,
         "h": 7
       },
@@ -1037,14 +1224,14 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "sum by (agent) (increase(swarm_hold_total{repository=\"$repository\", agent=~\"$agent\"}[1h]))",
+          "expr": "sum by (agent) (increase(tick_handoffs_total{kind=\"hold\", agent=~\"$agent\"}[1h]) and on (agent) tick_info{repo=\"$repository\"}) or (sum by (agent) (increase(swarm_hold_total{repository=\"$repository\", agent=~\"$agent\"}[1h])) unless on (agent) tick_handoffs_total)",
           "legendFormat": "{{agent}}"
         }
       ],
-      "description": "Times swarm/hold went onto a pull request.",
+      "description": "Times swarm/hold went onto a pull request. From the agent's tick runner where it counts handoffs, else from the sweep; never both.",
       "gridPos": {
         "x": 12,
-        "y": 48,
+        "y": 55,
         "w": 12,
         "h": 7
       },
@@ -1057,7 +1244,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 62,
         "w": 24,
         "h": 1
       }
@@ -1114,7 +1301,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 63,
         "w": 8,
         "h": 6
       },
@@ -1169,7 +1356,7 @@
       "description": "Failed Jobs still kept in the namespace, from kube-state-metrics. This is every CronJob in it, not only the two that push metrics.",
       "gridPos": {
         "x": 8,
-        "y": 56,
+        "y": 63,
         "w": 4,
         "h": 6
       },
@@ -1212,7 +1399,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 56,
+        "y": 63,
         "w": 12,
         "h": 6
       },
@@ -1256,7 +1443,7 @@
       "description": "Left in the App token's hour after each run.",
       "gridPos": {
         "x": 0,
-        "y": 62,
+        "y": 69,
         "w": 12,
         "h": 6
       },
@@ -1302,7 +1489,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 62,
+        "y": 69,
         "w": 12,
         "h": 6
       },
@@ -1315,7 +1502,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 75,
         "w": 24,
         "h": 1
       }
@@ -1361,7 +1548,7 @@
       "description": "Runs each agent's tick runner finished, by how they ended (getcouchy/agent-runner's tick_runs_total).",
       "gridPos": {
         "x": 0,
-        "y": 69,
+        "y": 76,
         "w": 12,
         "h": 7
       },
@@ -1429,7 +1616,7 @@
       "description": "Running from the runner's start push until its end push. One left running past the timeout is a run whose container died.",
       "gridPos": {
         "x": 12,
-        "y": 69,
+        "y": 76,
         "w": 4,
         "h": 7
       },
@@ -1472,7 +1659,7 @@
       ],
       "gridPos": {
         "x": 16,
-        "y": 69,
+        "y": 76,
         "w": 8,
         "h": 7
       },
@@ -1485,7 +1672,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 76,
+        "y": 83,
         "w": 24,
         "h": 1
       }
@@ -1517,7 +1704,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 77,
+        "y": 84,
         "w": 24,
         "h": 12
       },
