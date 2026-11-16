@@ -142,5 +142,6 @@ agent's last run duration, and is empty without a runner.
 its runner once the runner reports them (`tick_github_rate_limit_remaining`
 for locks, `tick_handoffs_total` for handoffs), and the sweep's only for an
 agent whose runner does not; both count the same locks and handoffs, so one
-agent never gets both. "On now" and "Last run" list the runner's jobs in
-flight and those of each agent's last run.
+agent never gets both. The runner's handoffs carry their own `repository`, so
+each repository's dashboard counts only the handoffs made in it. "On now" and
+"Last run" list the runner's jobs in flight and those of each agent's last run.
