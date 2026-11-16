@@ -89,7 +89,7 @@ variable unset.
 ## Install
 
 ```sh
-helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.2.0 \
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.2.1 \
   -n swarm --set github.repository=<owner>/<repo>
 # Try one before waiting for the schedule:
 kubectl -n swarm create job --from=cronjob/agent-reviewed reviewed-now
@@ -106,7 +106,7 @@ To keep your values and your own templates in a chart of yours:
 # Chart.yaml
 dependencies:
   - name: swarm
-    version: 0.2.0
+    version: 0.2.1
     repository: oci://ghcr.io/getcouchy/charts
 ```
 

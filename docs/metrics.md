@@ -129,3 +129,11 @@ The sweep's log keeps the same history: a `fixed:` line for each fix and an
 is a Grafana dashboard over these metrics. Import it, or load it the way your
 Grafana loads dashboards. It expects a Prometheus datasource and, for its log
 panel, a Loki one that has the jobs' pod logs.
+
+It also reads the `tick_*` metrics that
+[getcouchy/agent-runner](https://github.com/getcouchy/agent-runner)'s tick
+runner pushes to the same Pushgateway, matched to the repository by the `repo`
+label of `tick_info`. "Since each agent last ticked" takes an agent's last run
+start from the runner, and its heartbeat comment only for an agent no runner
+reports. The Runner row shows runs by how they ended, runs in flight and each
+agent's last run duration, and is empty without a runner.
