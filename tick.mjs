@@ -56,11 +56,18 @@ export function mayContinue({ startedAt, now = Date.now(), minutes = 20, ceiling
   return { ok: true, left };
 }
 
-/** Take `me`'s lock off everything it is on, at the end of a job or a tick. Returns what was released. */
+/**
+ * Take `me`'s lock off everything it is on, at the end of a job or a tick.
+ * Returns what was released, as [{ number, type: 'issue' | 'pull' }].
+ */
 export async function releaseAll(gh, me) {
-  const mine = [...(await gh.openIssues()), ...(await gh.openPulls())].filter((i) => providers(i).includes(me));
+  const held = (i) => providers(i).includes(me);
+  const mine = [
+    ...(await gh.openIssues()).filter(held).map((i) => ({ number: i.number, type: 'issue' })),
+    ...(await gh.openPulls()).filter(held).map((p) => ({ number: p.number, type: 'pull' })),
+  ];
   for (const item of mine) await gh.removeLabel(item.number, AGENT_PREFIX + me);
-  return mine.map((i) => i.number);
+  return mine;
 }
 
 /**
@@ -182,8 +189,10 @@ const ORDER = ['fix', 'hold', 'merge', 'review', 'implement'];
  * one github.mjs client per repository, the home repository (where the desk
  * is) first. opts as for `next`, with `wrote` a Map of repo -> Set. A
  * repository this token can't read is skipped and named. Nothing limits how many issues are in flight: an agent is on one thing at a time.
+ * onClaim(repo, job) is called when the job comes with my lock on it: taken
+ * now, or left from an earlier tick and picked back up.
  */
-export async function nextAcross(clients, { doClaim = true, wrote = new Map(), ...opts }) {
+export async function nextAcross(clients, { doClaim = true, wrote = new Map(), onClaim, ...opts }) {
   for (let attempt = 0; attempt < 3; attempt++) {
     let best = null;
     const idle = [];
@@ -206,6 +215,7 @@ export async function nextAcross(clients, { doClaim = true, wrote = new Map(), .
       if (!(await claim(gh, job.lock, opts.me))) continue; // lost the race: look again
       job.claimed = true;
     }
+    if (job.claimed) onClaim?.(gh.repo, job);
     return { repo: gh.repo, ...job };
   }
   return { job: 'none', why: 'lost three claims in a row to other agents' };

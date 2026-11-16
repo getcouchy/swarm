@@ -1,5 +1,8 @@
 // node --test
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, focus, lockLapsed, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
@@ -8,6 +11,7 @@ import { client } from './github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from './sweep.mjs';
 import { registry } from './metrics.mjs';
 import { claim, firstJob, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
+import { run, writeEvent } from './commands.mjs';
 import { report, status } from './reviewed.mjs';
 import { likelyWork, sync, toolsStale } from './preflight.mjs';
 
@@ -241,7 +245,7 @@ test('next: a label is a lock on work in progress, and any agent carries the swa
 
   // The end of a job or a tick: my lock comes off everything.
   gh = fake({ issues: [issue(1, ['couchy-ux/approved', 'swarm/agent/codex']), issue(2, ['couchy-ux/approved', 'swarm/agent/grok'])], pulls: [pull(50, ['swarm/pr', 'swarm/agent/codex'])] });
-  assert.deepEqual(await releaseAll(gh, 'codex'), [1, 50]);
+  assert.deepEqual(await releaseAll(gh, 'codex'), [{ number: 1, type: 'issue' }, { number: 50, type: 'pull' }]);
   assert.deepEqual(gh.log, ['remove 1 swarm/agent/codex', 'remove 50 swarm/agent/codex']);
 });
 
@@ -841,4 +845,105 @@ test('every label the sweep creates has a description GitHub will accept', () =>
     assert.match(color, /^[0-9a-f]{6}$/);
     assert.ok(name.startsWith('swarm/'));
   }
+});
+
+/** Run an agent.mjs command on fake clients and read back the one line it wrote to TICK_EVENTS_FILE, less its time. */
+async function tickEvent(clients, cmd, args = []) {
+  const file = join(mkdtempSync(join(tmpdir(), 'tick-events-')), 'events.jsonl');
+  const { out, event } = await run(cmd, args, { clients, me: 'codex', can: new Set(), role: 'all', ceiling: 45, minutes: 20, entry: 'agent.mjs' });
+  await writeEvent(file, event);
+  const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  assert.equal(lines.length, 1);
+  const { at, ...line } = lines[0];
+  assert.ok(at.endsWith('Z') && Math.abs(Date.parse(at) - Date.now()) < 60_000, at);
+  return { out, line };
+}
+
+test('TICK_EVENTS_FILE: next writes the job it offered and what it claimed', async () => {
+  const home = 'getcouchy/couchy';
+  const agent = 'getcouchy/couchy-agent';
+  // The fewest requests left on any client, whichever has answered.
+  const limited = (gh, left) => Object.assign(gh, { rateLimitRemaining: () => left });
+  let { line } = await tickEvent([limited(fake({ issues: [issue(3)] }), 4900), limited(fake({ repo: agent }), 4870), limited(fake({ repo: 'o/r' }), null)], 'next');
+  const three = { repo: home, number: 3, type: 'issue' };
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'implement', ...three, claimed: [three], rateLimitRemaining: 4870 });
+
+  // A PR's job is on the PR; a fix takes its lock, a review takes none, and --look takes nothing.
+  const red = { sha20: [{ name: 'check', conclusion: 'failure' }] };
+  ({ line } = await tickEvent([fake({ pulls: [pull(20, ['swarm/pr'])], checks: red })], 'next'));
+  const twenty = { repo: home, number: 20, type: 'pull' };
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'fix', ...twenty, claimed: [twenty], rateLimitRemaining: null });
+  ({ line } = await tickEvent([fake({ issues: [issue(3)] }), fake({ repo: agent, pulls: [pull(13, ['swarm/pr'])] })], 'next'));
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'review', repo: agent, number: 13, type: 'pull', claimed: [], rateLimitRemaining: null });
+  const looked = fake({ issues: [issue(3)] });
+  ({ line } = await tickEvent([looked], 'next', ['--look']));
+  assert.deepEqual([line.job, line.number, line.claimed, looked.log], ['implement', 3, [], []]);
+  // A draft carried on is the PR's; my own lock on an issue with no PR is the issue's, held from now though taken before.
+  ({ line } = await tickEvent([fake({ issues: [issue(1)], pulls: [pull(20, ['swarm/pr'], { draft: true, body: 'Closes #1' })] })], 'next'));
+  assert.deepEqual([line.job, line.number, line.type, line.claimed], ['implement', 20, 'pull', [twenty]]);
+  const held = fake({ issues: [issue(4, ['couchy-ux/approved', 'swarm/agent/codex'])] });
+  ({ line } = await tickEvent([held], 'next'));
+  const four = { repo: home, number: 4, type: 'issue' };
+  assert.deepEqual([line.job, line.number, line.type, line.claimed, held.log], ['implement', 4, 'issue', [four], []]);
+
+  // Nothing to do: why, and what was passed by in each repository.
+  let out;
+  ({ out, line } = await tickEvent([fake({ issues: [issue(4, ['couchy-ux/approved', 'swarm/needs/design'])] }), fake({ repo: agent })], 'next'));
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'none', claimed: [], why: out.why, skipped: [{ repo: home, issue: 4, why: out.repos[0].skipped[0].why }], rateLimitRemaining: null });
+  assert.match(line.skipped[0].why, /needs design/);
+});
+
+test('TICK_EVENTS_FILE: more and finish write what they released', async () => {
+  const home = 'getcouchy/couchy';
+  const mine = () => fake({ issues: [issue(1, ['couchy-ux/approved', 'swarm/agent/codex'])], pulls: [pull(50, ['swarm/pr', 'swarm/agent/codex'])] });
+  const released = [{ repo: home, number: 1, type: 'issue' }, { repo: home, number: 50, type: 'pull' }];
+  let { out, line } = await tickEvent([mine()], 'more', [`--started=${new Date().toISOString()}`]);
+  assert.deepEqual(line, { v: 1, cmd: 'more', job: 'review', repo: home, number: 50, type: 'pull', released, rateLimitRemaining: null });
+  assert.deepEqual(out.released, ['getcouchy/couchy#1', 'getcouchy/couchy#50'], 'what it prints is unchanged');
+  ({ line } = await tickEvent([fake({ issues: [issue(3)] })], 'more', [`--started=${new Date(Date.now() - 3_600_000).toISOString()}`]));
+  assert.deepEqual(line, { v: 1, cmd: 'more', job: 'none', released: [], why: '60 minutes into this tick (limit 20)', skipped: [], rateLimitRemaining: null });
+
+  const agent = fake({ repo: 'getcouchy/couchy-agent', issues: [issue(12, ['couchy-ux/approved', 'swarm/agent/codex'])] });
+  ({ out, line } = await tickEvent([mine(), agent], 'finish'));
+  assert.deepEqual(line, { v: 1, cmd: 'finish', released: [...released, { repo: 'getcouchy/couchy-agent', number: 12, type: 'issue' }], rateLimitRemaining: null });
+  assert.deepEqual(out, { finished: true, released: ['getcouchy/couchy#1', 'getcouchy/couchy#50', 'getcouchy/couchy-agent#12'] });
+});
+
+test('TICK_EVENTS_FILE: claim and release write the item, typed, and the outcome', async () => {
+  const agent = 'getcouchy/couchy-agent';
+  const clients = () => [fake({ issues: [issue(3)] }), fake({ repo: agent, pulls: [pull(13, ['swarm/pr', 'swarm/agent/grok'], { pull_request: {} }), pull(14, ['swarm/pr', 'swarm/agent/codex'], { pull_request: {} })] })];
+  let { out, line } = await tickEvent(clients(), 'claim', ['3']);
+  const three = { repo: 'getcouchy/couchy', number: 3, type: 'issue' };
+  assert.deepEqual(line, { v: 1, cmd: 'claim', ...three, claimed: [three], rateLimitRemaining: null });
+  ({ out, line } = await tickEvent(clients(), 'claim', [`${agent}#13`]));
+  assert.equal(out.claimed, false);
+  assert.deepEqual(line, { v: 1, cmd: 'claim', repo: agent, number: 13, type: 'pull', claimed: [], lost: true, rateLimitRemaining: null });
+
+  const both = clients();
+  ({ out, line } = await tickEvent(both, 'release', [`${agent}#14`, 'blocked on #9']));
+  const fourteen = { repo: agent, number: 14, type: 'pull' };
+  assert.deepEqual(line, { v: 1, cmd: 'release', ...fourteen, released: [fourteen], rateLimitRemaining: null });
+  assert.deepEqual(both[1].log, ['remove 14 swarm/agent/codex', 'comment 14']);
+});
+
+test('TICK_EVENTS_FILE unset: nothing is written or asked of GitHub; a failed write is not the command\'s', async () => {
+  const gh = fake({ issues: [issue(3)] });
+  let asked = 0;
+  gh.issue = async () => { asked++; return issue(3); };
+  const { out, event } = await run('release', ['3'], { clients: [gh], me: 'codex' });
+  assert.deepEqual(out, { repo: 'getcouchy/couchy', issue: 3, released: true });
+  await writeEvent(undefined, event);
+  await writeEvent('', event);
+  assert.equal(asked, 0);
+
+  const errors = [];
+  const error = console.error;
+  console.error = (m) => errors.push(m);
+  try {
+    await writeEvent(join(mkdtempSync(join(tmpdir(), 'tick-events-')), 'missing', 'events.jsonl'), event);
+  } finally {
+    console.error = error;
+  }
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /^events: ENOENT/);
 });
