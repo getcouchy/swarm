@@ -24,6 +24,13 @@ AGENT_NAME=claude-3 node ../swarm/agent.mjs next
 Every command checks its clone against `origin/main` and runs `main`'s copy if
 they differ, so an old clone never applies old rules.
 
+With `TICK_EVENTS_FILE` set, each `agent.mjs` command that runs to completion
+appends one JSON line to that file: the job it offered, the locks it took or
+released (each with its repository, number and `issue` or `pull`) and the
+GitHub requests left on the token. The tick runner in getcouchy/agent-runner
+sets it for each run and turns the lines into live metrics; how it reads them
+is documented there. Unset, nothing is written.
+
 Two of the tools run on a schedule outside any tick: for getcouchy/couchy,
 CronJobs on kube-1 (the `couchy-swarm` chart in getcouchy/ops) download this
 repository's `main` and run `reviewed.mjs` every 2 minutes and `sweep.mjs`
