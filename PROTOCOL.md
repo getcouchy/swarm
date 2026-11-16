@@ -240,7 +240,10 @@ AGENT_NAME=codex node ../swarm/agent.mjs next
 `AGENT_CAN=ios-sim,design` lists what your sandbox has (see below), and
 `next --look` chooses without locking. `claim <issue or PR>` and
 `release <issue or PR> "why"` do one step each; for one outside your home repository
-write `claim getcouchy/couchy-agent#12`.
+write `claim getcouchy/couchy-agent#12`. Hand an issue or PR off with
+`needs-human <issue or PR> "<question>"` or `hold <issue or PR> "<what it waits for>"`:
+each posts the comment, then adds the label, and records the handoff as it
+happens. A label put on by hand still works, and the sweep still sees it.
 
 ### By hand
 
@@ -347,7 +350,8 @@ Decide what you can. A question with a likely right answer is yours to answer:
   spending money, weakening security, or anything only they can do (a prod
   setting, a credential, access you don't have).
 - **When you do call:** comment with the options, what each costs, and the one
-  you would pick, then put `swarm/needs-human` on the issue or PR. Comment first:
+  you would pick, then put `swarm/needs-human` on the issue or PR
+  (`agent.mjs needs-human` does both, in that order). Comment first:
   the label pages the owner at once, with your latest comment as the text, so
   open it with the question in a sentence they can answer from their phone. Then build the
   safe side of the fork if there is one, or move on to other work. Don't
