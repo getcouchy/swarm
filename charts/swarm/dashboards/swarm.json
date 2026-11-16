@@ -149,11 +149,11 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "time() - swarm_agent_last_tick_timestamp_seconds{repository=\"$repository\", agent=~\"$agent\"}",
+          "expr": "time() - (max by (agent) (tick_run_last_start_timestamp_seconds{agent=~\"$agent\"} and on (agent) tick_info{repo=\"$repository\"}) or on (agent) max by (agent) (swarm_agent_last_tick_timestamp_seconds{repository=\"$repository\", agent=~\"$agent\"}))",
           "legendFormat": "{{agent}}"
         }
       ],
-      "description": "From each agent's heartbeat comment on the Agent desk. The colours assume the default 8 hour limit; the panel beside this one draws the limit the sweep ran with.",
+      "description": "From the start of each agent's last run, as its tick runner reports it, or from its heartbeat comment on the Agent desk for an agent no runner reports. The colours assume the default 8 hour limit; the panel beside this one draws the limit the sweep ran with.",
       "gridPos": {
         "x": 0,
         "y": 1,
@@ -193,7 +193,7 @@
             "type": "prometheus",
             "uid": "${prometheus}"
           },
-          "expr": "time() - swarm_agent_last_tick_timestamp_seconds{repository=\"$repository\", agent=~\"$agent\"}",
+          "expr": "time() - (max by (agent) (tick_run_last_start_timestamp_seconds{agent=~\"$agent\"} and on (agent) tick_info{repo=\"$repository\"}) or on (agent) max by (agent) (swarm_agent_last_tick_timestamp_seconds{repository=\"$repository\", agent=~\"$agent\"}))",
           "legendFormat": "{{agent}}"
         },
         {
@@ -1309,13 +1309,183 @@
       "id": 26
     },
     {
+      "id": 29,
+      "type": "row",
+      "title": "Runner",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Runs by status, per hour",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "sum by (agent, status) (increase(tick_runs_total{agent=~\"$agent\"}[1h]) and on (agent) tick_info{repo=\"$repository\"})",
+          "legendFormat": "{{agent}} {{status}}"
+        }
+      ],
+      "description": "Runs each agent's tick runner finished, by how they ended (getcouchy/agent-runner's tick_runs_total).",
+      "gridPos": {
+        "x": 0,
+        "y": 69,
+        "w": 12,
+        "h": 7
+      },
+      "id": 30
+    },
+    {
+      "type": "stat",
+      "title": "Runs in flight",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "idle"
+                },
+                "1": {
+                  "text": "running"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "blue",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "max by (agent) (tick_run_active{agent=~\"$agent\"} and on (agent) tick_info{repo=\"$repository\"})",
+          "legendFormat": "{{agent}}"
+        }
+      ],
+      "description": "Running from the runner's start push until its end push. One left running past the timeout is a run whose container died.",
+      "gridPos": {
+        "x": 12,
+        "y": 69,
+        "w": 4,
+        "h": 7
+      },
+      "id": 31
+    },
+    {
+      "type": "timeseries",
+      "title": "Last run duration",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${prometheus}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "custom": {}
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${prometheus}"
+          },
+          "expr": "max by (agent) (tick_run_last_duration_seconds{agent=~\"$agent\"} and on (agent) tick_info{repo=\"$repository\"})",
+          "legendFormat": "{{agent}}"
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 69,
+        "w": 8,
+        "h": 7
+      },
+      "id": 32
+    },
+    {
       "id": 27,
       "type": "row",
       "title": "Events",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 76,
         "w": 24,
         "h": 1
       }
@@ -1347,7 +1517,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 69,
+        "y": 77,
         "w": 24,
         "h": 12
       },
