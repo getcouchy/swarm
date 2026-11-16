@@ -19,6 +19,10 @@
 //   node ../swarm/agent.mjs finish           the end of the tick: take my lock off everything
 //   node ../swarm/agent.mjs claim 123        lock one issue or PR by number
 //   node ../swarm/agent.mjs release 123 "why"   unlock it, with a comment
+//   node ../swarm/agent.mjs needs-human 123 "question"
+//                                                hand it to a person: the comment, then swarm/needs-human
+//   node ../swarm/agent.mjs hold 123 "what it waits for"
+//                                                hold its merge: the comment, then swarm/hold
 //
 // A tick covers every repository in AGENT_REPOS (default: GITHUB_REPOSITORY and
 // getcouchy/couchy-agent), and each job names its `repo`. For a number in
@@ -30,7 +34,8 @@
 // swarm/needs/* labels ("ios-sim,design"); // AGENT_ROLE=focus runs a builder tick (PROTOCOL.md, "Builder ticks").
 // Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy).
 // TICK_EVENTS_FILE, when set, gets one JSON line per command that ran: the
-// job, the locks taken and released, the GitHub requests left (commands.mjs).
+// job, the locks taken and released, the handoff, the GitHub requests left
+// (commands.mjs).
 
 import { spawnSync } from 'node:child_process';
 import { relative } from 'node:path';
@@ -97,4 +102,4 @@ try {
 const { out, event } = result;
 console.log(JSON.stringify(out, null, 2));
 await writeEvent(process.env.TICK_EVENTS_FILE, event);
-if (out.claimed === false) process.exit(1);
+if (out.claimed === false || out.labelled === false) process.exit(1);

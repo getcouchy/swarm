@@ -11,7 +11,7 @@ import { client } from './github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from './sweep.mjs';
 import { registry } from './metrics.mjs';
 import { claim, firstJob, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
-import { run, writeEvent } from './commands.mjs';
+import { run, UsageError, writeEvent } from './commands.mjs';
 import { report, status } from './reviewed.mjs';
 import { likelyWork, sync, toolsStale } from './preflight.mjs';
 
@@ -946,4 +946,32 @@ test('TICK_EVENTS_FILE unset: nothing is written or asked of GitHub; a failed wr
   }
   assert.equal(errors.length, 1);
   assert.match(errors[0], /^events: ENOENT/);
+});
+
+test('needs-human and hold: the comment, then the label, then the line the runner counts', async () => {
+  const agent = 'getcouchy/couchy-agent';
+  const comments = {};
+  const home = fake({ issues: [issue(3)], comments });
+  const other = fake({ repo: agent, pulls: [pull(13, ['swarm/pr'], { pull_request: {} })] });
+  let { out, line } = await tickEvent([home, other], 'needs-human', ['3', 'Keep the old rows or drop them? I would keep them.']);
+  assert.deepEqual(home.log, ['comment 3', 'add 3 swarm/needs-human'], 'the label pages with the latest comment, so it comes second');
+  assert.equal(comments[3][0].body, 'Keep the old rows or drop them? I would keep them.\n\n<!-- agent: codex -->');
+  assert.deepEqual(out, { repo: 'getcouchy/couchy', issue: 3, label: 'swarm/needs-human', commented: true, labelled: true });
+  assert.deepEqual(line, { v: 1, cmd: 'needs-human', repo: 'getcouchy/couchy', number: 3, type: 'issue', rateLimitRemaining: null });
+
+  ({ out, line } = await tickEvent([home, other], 'hold', [`${agent}#13`, 'Waits for #12 to merge.']));
+  assert.deepEqual(other.log, ['comment 13', 'add 13 swarm/hold']);
+  assert.deepEqual(line, { v: 1, cmd: 'hold', repo: agent, number: 13, type: 'pull', rateLimitRemaining: null });
+
+  // A step that fails stops it there, says how far it got, and writes nothing.
+  const broken = (step) => Object.assign(fake({ issues: [issue(3)] }), { [step]: async () => { throw new Error(`${step}: 502`); } });
+  let gh = broken('comment');
+  let r = await run('needs-human', ['3', 'Which one?'], { clients: [gh], me: 'codex' });
+  assert.deepEqual([r.out.commented, r.out.labelled, r.out.error, r.event, gh.log], [false, false, 'comment: 502', null, []], 'no label without its comment');
+  gh = broken('addLabel');
+  r = await run('hold', ['3', 'Waits for #12.'], { clients: [gh], me: 'codex' });
+  assert.deepEqual([r.out.commented, r.out.labelled, r.out.error, r.event], [true, false, 'addLabel: 502', null]);
+
+  await assert.rejects(run('hold', ['3'], { clients: [fake()], me: 'codex' }), UsageError, 'what it waits for is required');
+  await assert.rejects(run('needs-human', ['nope', 'Which?'], { clients: [fake()], me: 'codex' }), UsageError);
 });

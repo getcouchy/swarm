@@ -3,9 +3,10 @@
 // agent.mjs reads the environment and the checkout, then runs one of these.
 
 import { appendFileSync } from 'node:fs';
+import { HOLD, NEEDS_HUMAN } from './rules.mjs';
 import { claim, firstJob, heartbeat, mayContinue, nextAcross, release, releaseAll } from './tick.mjs';
 
-export const USAGE = 'Usage: agent.mjs next [--look] | more --started=<ISO time> [--wrote=<PR numbers>] | finish | claim <issue or PR> | release <issue or PR> [reason]';
+export const USAGE = 'Usage: agent.mjs next [--look] | more --started=<ISO time> [--wrote=<PR numbers>] | finish | claim <issue or PR> | release <issue or PR> [reason] | needs-human <issue or PR> "<question>" | hold <issue or PR> "<what it waits for>"';
 
 /** A command line agent.mjs can't run: it prints the message and exits 2. */
 export class UsageError extends Error {}
@@ -35,7 +36,8 @@ const rateLimit = (clients) => {
  * role, ceiling, minutes, entry (how the agent ran agent.mjs), checkout (what
  * the preflight found, for next) }. Returns { out, event }: `out` is what the
  * command prints, and event() builds its TICK_EVENTS_FILE line, so nothing
- * extra is asked of GitHub unless that file is set.
+ * extra is asked of GitHub unless that file is set; null for a handoff that
+ * failed.
  */
 export async function run(cmd, args, { clients, me, can, role, ceiling, minutes, entry, checkout = null }) {
   const gh = clients[0]; // the home repository: the Agent desk and its heartbeats live there
@@ -114,6 +116,26 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
       return { ...it, released: [it] };
     });
   }
+  if (cmd === 'needs-human' || cmd === 'hold') {
+    // A handoff: the comment first, then the label, which pages the owner
+    // (needs-human) with the latest comment as its text.
+    const { client, number } = ref(args[0]);
+    const text = args.slice(1).join(' ').trim();
+    if (!text) throw new UsageError(`Usage: agent.mjs ${cmd} <issue or PR> "<${cmd === 'hold' ? 'what it waits for' : 'question'}>"`);
+    const label = cmd === 'hold' ? HOLD : NEEDS_HUMAN;
+    const out = { repo: client.repo, issue: number, label, commented: false, labelled: false };
+    try {
+      await client.comment(number, `${text}\n\n<!-- agent: ${me} -->`);
+      out.commented = true;
+      await client.addLabel(number, label);
+      out.labelled = true;
+    } catch (e) {
+      out.error = e.message;
+    }
+    // Not handed off until the label is on: no line for the runner to count.
+    if (!out.labelled) return { out, event: null };
+    return done(out, async () => item(client.repo, number, await typeOf(client, number)));
+  }
   throw new UsageError(USAGE);
 }
 
@@ -122,7 +144,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
  * failure is one line on stderr and never the command's.
  */
 export async function writeEvent(file, event) {
-  if (!file) return;
+  if (!file || !event) return;
   try {
     appendFileSync(file, `${JSON.stringify(await event())}\n`);
   } catch (e) {
