@@ -24,10 +24,11 @@ import { pathToFileURL } from 'node:url';
 import { fromEnv } from './github.mjs';
 import { pushRun } from './metrics.mjs';
 import { planeFromEnv, tracker } from './plane.mjs';
+import { focusOf } from './tick.mjs';
 import {
-  AGENT_PREFIX, BLOCKED, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
+  AGENT_PREFIX, BLOCKED, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  blockGraph, downstream, focus, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED,
+  blockGraph, downstream, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED,
 } from './rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
@@ -163,10 +164,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
 
   // The queue: ready, unblocked, in focus, and nobody has taken it. Agents
   // start nothing outside focus, so ready work there is not overdue.
-  const focusedIssues = await gh.openIssues([FOCUS]);
-  const subs = new Map();
-  for (const f of focusedIssues) subs.set(f.number, await gh.subIssues(f.number));
-  const focused = focus(focusedIssues, subs);
+  const focused = await focusOf(gh, issues);
   const ctx = { can: { has: () => true }, linked };
   for (const issue of issues.filter((i) => !released.has(i.number) && focused.of(i) && !whyNotClaimable(i, ctx))) {
     // Since its last change: it became ready, or an agent let go of it, or
@@ -243,15 +241,6 @@ export async function sweep(gh, { now = Date.now(), limits }) {
         ? `${refText(pr.number)} (${author}) has waited ${age(hoursSince(pushedAt, now))} for another review since its author pushed.`
         : `${refText(pr.number)} (${author}) has been open ${age(hoursSince(pr.created_at, now))} with no review from an agent or a person.`,
       { ...item, since: again ? pushedAt : pr.created_at });
-    }
-  }
-
-  // Squad issues in two stages at once.
-  for (const issue of issues) {
-    const names = labelNames(issue);
-    const stages = STAGES.filter((s) => names.includes(s));
-    if (names.includes(SQUAD) && !names.includes(EPIC) && stages.length > 1) {
-      flag('Labels', `stages:${issue.number}`, `${refText(issue.number)} carries ${stages.map((s) => `\`${s}\``).join(' and ')}; it should have one.`, { number: issue.number, agent: agentOf(issue) });
     }
   }
 

@@ -7,7 +7,7 @@
 import { isKey } from './plane.mjs';
 import { likelyWork } from './preflight.mjs';
 import {
-  AGENT_PREFIX, DESK, FOCUS, REVIEWED, blockGraph, closingIssues, downstream, focus, partOfIssues, priorityRank, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
+  AGENT_PREFIX, DESK, FOCUS, REVIEWED, blockGraph, closingIssues, downstream, partOfIssues, priorityRank, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
   labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, providers, refsOf, whyNotClaimable,
 } from './rules.mjs';
 
@@ -96,11 +96,7 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
   // The swarm's PRs, and people's PRs marked `swarm/review-only`, which agents only review.
   const pulls = every.filter(isReviewable);
   const open = (await gh.openIssues()).filter((i) => !handsOff(i));
-  const labelled = await gh.openIssues([FOCUS]);
-  // A focused issue's sub-issues are in focus too, whether or not its body names them.
-  const subs = new Map();
-  for (const f of labelled) subs.set(f.number, await gh.subIssues(f.number));
-  const focused = focus(labelled, subs);
+  const focused = await focusOf(gh, open);
   // A PR is in focus when an item it closes, or is part of, is. It may name
   // the item by its key or by the GitHub issue it was copied from.
   const byRef = new Map(open.flatMap((i) => refsOf(i).map((r) => [r, i])));
@@ -166,9 +162,8 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
   const mine = open.find((i) => providers(i).includes(me) && !linkedTo(linked, i).length && focused.of(i));
   if (mine) return { job: 'implement', issue: mine.number, title: mine.title, ...url(mine), resumed: true, lock: mine.number, claimed: true };
 
-  // 5. Then one ready work item, and only one in focus (the sprint,
-  // `swarm/focus`, and what those name): with none claimable the tick has
-  // nothing to start. Highest priority first; between equals, the one more
+  // 5. Then one ready work item, and only one in focus: with none claimable
+  // the tick has nothing to start. Highest priority first; between equals, the one more
   // work waits on.
   const ctx = { can, linked };
   const skipped = [];
@@ -191,6 +186,37 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
     if (job) return job; // else lost the race: the next one
   }
   return { job: 'none', why: 'nothing in focus is claimable', skipped };
+}
+
+// A blocker as `blockers` names it ('#21', 'COUCHYUX-9'), as an item's reference.
+const blockerRef = (b) => (typeof b === 'string' && /^#\d+$/.test(b) ? Number(b.slice(1)) : b);
+
+/**
+ * What the owner put first: the open items in the current cycle (the sprint)
+ * or labelled `swarm/focus`, their children (the parent link, three levels
+ * down), and every open item one of those waits on, down the whole chain of
+ * blockers, so a sprint item is never stuck behind work nobody will start.
+ * Naming an item in a description puts nothing in focus.
+ * open: the open work items. Returns { of(issue): the number of the focused
+ * item that puts it in focus, or null }.
+ */
+export async function focusOf(gh, open) {
+  const byRef = new Map(open.flatMap((i) => refsOf(i).map((r) => [r, i])));
+  const owner = new Map();
+  const queue = [];
+  const add = (item, by) => {
+    if (!item || owner.has(item.number)) return;
+    for (const r of refsOf(item)) owner.set(r, by);
+    queue.push(item);
+  };
+  const focused = await gh.openIssues([FOCUS]);
+  for (const f of focused) add(f, f.number);
+  for (const f of focused) for (const n of await gh.subIssues(f.number)) add(byRef.get(n), f.number);
+  while (queue.length) {
+    const item = queue.shift();
+    for (const b of await gh.blockers(item)) add(byRef.get(blockerRef(b)), owner.get(item.number));
+  }
+  return { of: (issue) => refsOf(issue).map((r) => owner.get(r)).find((v) => v != null) ?? null };
 }
 
 /**

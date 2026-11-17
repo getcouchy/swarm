@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_PROJECTS, htmlToText, isKey, mdToHtml, parseProjects, planeClient, tracker } from './plane.mjs';
-import { closingIssues, focus, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from './rules.mjs';
-import { claim } from './tick.mjs';
+import { closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from './rules.mjs';
+import { claim, focusOf } from './tick.mjs';
 import { followPulls, readLinked, writeDesk } from './sweep.mjs';
 import { run } from './commands.mjs';
 
@@ -172,14 +172,16 @@ test('priority comes from Plane; blocking relations name the open items that wai
   assert.equal(fake.calls.filter((c) => c.includes('/relations/')).length, 1);
 });
 
-test('a PR names a work item by key, or by the GitHub issue it was copied from', () => {
+test('a PR names a work item by key, or by the GitHub issue it was copied from', async () => {
   assert.deepEqual(closingIssues('Closes COUCHYUX-12 and #4. Fixes flaky-2.'), ['COUCHYUX-12', 4]);
   assert.deepEqual(partOfIssues('Part of COUCHYUX-7 (2 of 3)'), ['COUCHYUX-7']);
   const linked = linkedPulls([{ number: 50, body: 'Closes #1680' }, { number: 51, body: 'Part of COUCHYUX-1' }]);
   const item = { number: 'COUCHYUX-1', aliases: ['getcouchy/couchy#1680', 1680], stage: 'unstarted', state: 'open', labels: [] };
   assert.deepEqual(linkedTo(linked, item).map((p) => p.number), [51, 50]);
   assert.match(whyNotClaimable(item, { linked }), /PR #51/);
-  const f = focus([{ number: 'COUCHYUX-9', body: 'Wave 1: #1680, COUCHYUX-3', labels: [] }]);
+  // A sprint item's blocker named by the GitHub issue it was copied from is in focus.
+  const sprint = { number: 'COUCHYUX-9', labels: [] };
+  const f = await focusOf({ openIssues: async () => [sprint], subIssues: async () => [], blockers: async (i) => (i === sprint ? ['#1680'] : []) }, [sprint, item]);
   assert.equal(f.of(item), 'COUCHYUX-9');
 });
 
