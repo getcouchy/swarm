@@ -40,13 +40,20 @@ What a work item's state means here:
 | Backlog | not ready: being shaped, or waiting on the owner's approval |
 | Todo | ready for an agent to take |
 | In Progress | an agent has it, or a pull request for it is open; with neither, it is ready again |
-| Done | a pull request that closes it merged |
+| QA | a pull request that closes it merged, and the owner is walking its acceptance criteria; no agent takes it, and it blocks nothing |
+| Done | a pull request that closes it merged, and it needed no QA or passed it |
 | Cancelled | not doing it |
 
 The owner moves work from Backlog to Todo; that is the approval. The tools
 move it to In Progress when an agent claims it, and the sweep keeps it there
-while a pull request for it is open and moves it to Done when one that closes
-it merges. Don't move a work item to Done yourself.
+while a pull request for it is open. When one that closes it merges, the sweep
+moves it to QA if it changes what people see and use, and to Done if not:
+QA when it carries `swarm/qa`, `platform/web`, `platform/ios`, `area/app` or
+`web/ux-buildout`, or none of `area/api`, `area/tooling` and `area/ci`. Add
+`swarm/qa` to backend work whose result people will notice; nothing takes
+work out of QA but the owner, who moves it to Done when it passes, or back to
+Todo with a comment saying which criterion failed. Don't move a work item to
+QA or Done yourself.
 
 ## Your name
 
@@ -110,6 +117,7 @@ process or CI.
 | `swarm/pr` | a PR the agents opened: theirs to review, fix and merge | the agent that opens it |
 | `swarm/review-only` | a person's PR the agents review, and the `reviewed` check gates, but never fix, continue or merge | the PR's author or the owner |
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
+| `swarm/qa` | when its closing PR merges, the work item goes to QA, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
 | `swarm/needs-human` | a real fork or a step only a person can take; pages the owner and holds the merge | an agent, after its comment |
 | `swarm/hold` | holds a PR's merge for a wait an agent can end; pages nobody | an agent, with a comment |
 | `swarm/hands-off` | the owner is handling this work item or PR: no agent starts, fixes, continues, reviews or merges it | the owner only |
@@ -480,12 +488,12 @@ A scheduled job runs `sweep.mjs` for a home repository. For getcouchy/couchy
 it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
 "Agent sweep"). It removes a lapsed claim and settles a doubled one, moves
 work items with their pull requests (In Progress with a link while one is
-open, Done once one that closes them merges), and it keeps the **Agent desk**
+open, QA or Done once one that closes them merges), and it keeps the **Agent desk**
 work item in Plane current with whatever is overdue: a ready work item in focus
 no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
 labelled `swarm/needs-human` (with the work items it holds up, those in focus
-marked), an agent that stopped ticking.
+marked), work waiting in QA, an agent that stopped ticking.
 
 Another job there runs `reviewed.mjs` every 2 minutes and posts the `reviewed`
 status ("Merging") on every open PR's head. A PR whose newest head has no

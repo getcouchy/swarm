@@ -18,6 +18,7 @@ export const NEEDS_HUMAN = `${NS}needs-human`;
 export const HOLD = `${NS}hold`;
 export const REVIEWED = 'reviewed';
 export const FOCUS = `${NS}focus`;
+export const QA = `${NS}qa`;
 export const CONFLICT = 'conflicts-with-main';
 export const DESK = `${NS}desk`;
 export const AGENT_PREFIX = `${NS}agent/`;
@@ -171,6 +172,23 @@ export function focus(focusedIssues, subIssues = new Map()) {
   const hit = (issue, map) => refsOf(issue).map((r) => map.get(r)).find((v) => v != null);
   const of = (issue) => hit(issue, owners) ?? hit(issue, listed) ?? mentions(issue.body).map((n) => owners.get(n)).find((v) => v != null) ?? null;
   return { of };
+}
+
+// Labels that say a work item changes what people see and use, and those that
+// say it doesn't. needsQA reads them.
+const UI_LABELS = ['platform/web', 'platform/ios', 'area/app', 'web/ux-buildout'];
+const BACKEND_LABELS = ['area/api', 'area/tooling', 'area/ci'];
+
+/**
+ * Whether a work item goes to QA, for the owner to walk its acceptance
+ * criteria, once the PR that closes it merges, rather than straight to Done:
+ * it carries `swarm/qa`, a label that says it touches what people use, or no
+ * label that says it is backend work only. An agent may add `swarm/qa`; nothing
+ * takes an item out of QA but the owner.
+ */
+export function needsQA(item) {
+  const names = labelNames(item);
+  return names.includes(QA) || names.some((n) => UI_LABELS.includes(n)) || !names.some((n) => BACKEND_LABELS.includes(n));
 }
 
 const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };

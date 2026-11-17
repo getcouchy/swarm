@@ -28,7 +28,7 @@ const pull = (number, labels, extra = {}) => ({
 });
 
 /** An in-memory GitHub: issues and pulls by number, with the calls the tools make. */
-function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = {}, events = {}, comments = {}, blockers = {}, blocking = {}, pushed = {}, required = [], statuses = {}, repo = 'getcouchy/couchy', onAdd } = {}) {
+function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = {}, events = {}, comments = {}, blockers = {}, blocking = {}, qa = [], pushed = {}, required = [], statuses = {}, repo = 'getcouchy/couchy', onAdd } = {}) {
   const log = [];
   const find = (n) => [...issues, ...pulls].find((i) => i.number === n);
   const has = (i, names) => names.every((n) => i.labels.some((l) => l.name === n));
@@ -62,6 +62,7 @@ function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = 
     commit: async (sha) => ({ commit: { committer: { date: pushed[sha] ?? ago(1) } } }),
     blockers: async (i) => blockers[i.number] ?? [],
     blocking: async (i) => blocking[i.number] ?? [],
+    inQA: async () => qa,
     createIssue: async (title, body, labels) => { log.push(`create ${title}`); const i = issue(999, labels, { title, body }); issues.push(i); return i; },
     editIssue: async (n, patch) => { log.push(`edit ${n}`); Object.assign(find(n), patch); },
   };
@@ -338,6 +339,9 @@ test('sweep: only work in focus is waiting for an agent; Needs you says what eac
     '#5 Issue 5. Holds up #6 (in focus), and 1 more further down.',
     '#8 Issue 8. Holds up #1.',
   ]);
+  // Merged work waiting for the owner's QA is on the desk too.
+  const withQA = await sweep(fake({ qa: [issue(9, ['area/app'], { stage: 'qa', state: 'closed', updated_at: ago(3) })] }), { now: NOW, limits: LIMITS });
+  assert.deepEqual(withQA.overdue.filter((o) => o.section === 'Waiting for your QA').map((o) => [o.line, o.since]), [['#9 Issue 9', ago(3)]]);
 });
 
 test('sweep: an agent with several heartbeat comments is listed once, by its newest', async () => {

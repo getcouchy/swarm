@@ -27,7 +27,7 @@ import { planeFromEnv, tracker } from './plane.mjs';
 import {
   AGENT_PREFIX, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  blockGraph, downstream, focus, partOfIssues, providers, refText, whyNotClaimable, FAILED,
+  blockGraph, downstream, focus, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED,
 } from './rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
@@ -254,6 +254,11 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   }
   for (const pr of pulls.filter((p) => labelNames(p).includes(HOLD))) labelled.hold.push({ number: pr.number, agent: agentOf(pr) });
 
+  // Merged work waiting for the owner to walk its acceptance criteria.
+  for (const item of (await gh.inQA?.()) ?? []) {
+    flag('Waiting for your QA', `qa:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
+  }
+
   // Agents that stopped ticking.
   const desk = issues.find((i) => labelNames(i).includes(DESK)) ?? null;
   const heartbeats = [];
@@ -322,8 +327,11 @@ export function readLinked(body) {
  * Work items follow their pull requests. A PR that closes an item, or is part
  * of it, moves it from Backlog or Todo to In Progress and puts a link to
  * itself on it; one that closes it and merged in the last two days moves it
- * to Done. A PR may name an item by its key or by the GitHub issue it was
- * copied from. Returns the lines to log and the pairs linked so far.
+ * to QA when it needs the owner's QA (rules.mjs, needsQA), else to Done. Each
+ * merge moves its item once (an `item>pr` pair beside the `item<pr` links), so
+ * an item the owner sends back to Todo stays there. A PR may name an item by
+ * its key or by the GitHub issue it was copied from. Returns the lines to log
+ * and the pairs recorded so far.
  */
 export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) {
   if (!gh.findIssue) return { lines: [], linked: [] };
@@ -350,10 +358,12 @@ export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) 
     if (!pr.merged_at || hoursSince(pr.merged_at, now) > 48) continue;
     for (const ref of closingIssues(pr.body)) {
       const item = await gh.findIssue(ref);
-      if (!item || item.state !== 'open') continue;
-      await gh.setStage(item.number, 'completed');
+      const moved = item && `${item.number}>${pr.number}`;
+      if (!item || item.state !== 'open' || seen.has(moved)) continue;
+      const stage = await gh.setStage(item.number, needsQA(item) ? 'qa' : 'completed');
       await link(item, pr);
-      lines.push(`${item.number} is Done: PR #${pr.number} merged.`);
+      seen.add(moved);
+      lines.push(`${item.number} is ${stage === 'qa' ? 'in QA' : 'Done'}: PR #${pr.number} merged.`);
     }
   }
   return { lines, linked: [...seen].slice(-1000) };
