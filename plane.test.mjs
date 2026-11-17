@@ -16,7 +16,7 @@ const STATES = [
 ];
 
 /** An in-memory Plane behind fetch: one project, its states, labels, work items, comments, links and cycle. */
-function fakePlane({ items = [], labels = [], cycle = [], relations = {}, limit = null } = {}) {
+function fakePlane({ items = [], labels = [], cycle = [], relations = {}, blocking = {}, limit = null } = {}) {
   const calls = [];
   const comments = {};
   const links = {};
@@ -61,7 +61,7 @@ function fakePlane({ items = [], labels = [], cycle = [], relations = {}, limit 
       if (method === 'POST') (links[m[1]] ??= []).push(data);
       return json(method === 'POST' ? 201 : 200, method === 'POST' ? data : page(links[m[1]] ?? []), headers);
     }
-    if ((m = /^projects\/p1\/work-items\/([\w-]+)\/relations\/$/.exec(path))) return json(200, { blocked_by: relations[m[1]] ?? [] }, headers);
+    if ((m = /^projects\/p1\/work-items\/([\w-]+)\/relations\/$/.exec(path))) return json(200, { blocked_by: relations[m[1]] ?? [], blocking: blocking[m[1]] ?? [] }, headers);
     if (path === `projects/${PID}/cycles/`) return json(200, cycle.length ? [{ id: 'cy1' }] : [], headers);
     if (path === `projects/${PID}/cycles/cy1/cycle-issues/`) return json(200, page(cycle.map((id) => item(id))), headers);
     if (path === `projects/${PID}/work-items/` && method === 'POST') {
@@ -158,6 +158,20 @@ test('blockers: relations and the description, by key or by the GitHub number an
   assert.deepEqual(await plane.blockers(item), ['COUCHYUX-2', 'COUCHYUX-5', 'elsewhere (in another project)']);
 });
 
+test('priority comes from Plane; blocking relations name the open items that wait, read once with the blockers', async () => {
+  const fake = fakePlane({
+    items: [raw(1, { priority: 'urgent' }), raw(2), raw(3, { state: 's-done' })],
+    relations: { i1: ['i2'] },
+    blocking: { i1: ['i2', 'i3', 'elsewhere'] },
+  });
+  const plane = client(fake);
+  const [one, two] = await plane.openIssues();
+  assert.deepEqual([one.priority, two.priority], ['urgent', 'none']);
+  assert.deepEqual(await plane.blocking(one), ['COUCHYUX-2'], 'a done item and one in another project wait on nothing here');
+  await plane.blockers(one);
+  assert.equal(fake.calls.filter((c) => c.includes('/relations/')).length, 1);
+});
+
 test('a PR names a work item by key, or by the GitHub issue it was copied from', () => {
   assert.deepEqual(closingIssues('Closes COUCHYUX-12 and #4. Fixes flaky-2.'), ['COUCHYUX-12', 4]);
   assert.deepEqual(partOfIssues('Part of COUCHYUX-7 (2 of 3)'), ['COUCHYUX-7']);
@@ -242,7 +256,7 @@ test('desk in Plane: the markers live in one comment the sweep edits, so the nex
 });
 
 test('events: a work item carries its title from what the tracker read, a PR its own; the line asks Plane nothing', async () => {
-  const fake = fakePlane({ items: [raw(12), raw(13, { labels: ['l-agent'] })], labels: [{ id: 'l-agent', name: 'swarm/agent/codex' }] });
+  const fake = fakePlane({ items: [raw(12), raw(13, { labels: ['l-agent'] })], labels: [{ id: 'l-agent', name: 'swarm/agent/codex' }], cycle: ['i12'] });
   const pulls = [{ number: 57, title: 'Fix login', labels: [{ name: 'swarm/pr' }, { name: 'swarm/agent/codex' }] }];
   const gh = {
     repo: 'getcouchy/couchy',

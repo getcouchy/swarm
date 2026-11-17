@@ -7,7 +7,7 @@
 import { isKey } from './plane.mjs';
 import { likelyWork } from './preflight.mjs';
 import {
-  AGENT_PREFIX, DESK, FOCUS, REVIEWED, closingIssues, focus, partOfIssues, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
+  AGENT_PREFIX, DESK, FOCUS, REVIEWED, blockGraph, closingIssues, downstream, focus, partOfIssues, priorityRank, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
   labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, providers, refsOf, whyNotClaimable,
 } from './rules.mjs';
 
@@ -151,25 +151,29 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
   }
   if (toReview) return toReview;
 
-  // 4. Then unfinished work nobody is on: a draft PR, whoever opened it, or
-  // an issue with my lock and no PR yet. Finishing comes before starting.
-  // Any open PR for an issue means it is in progress, a person's PR included.
+  // 4. Then unfinished work in focus nobody is on: a draft PR, whoever opened
+  // it, or an issue with my lock and no PR yet. Finishing comes before
+  // starting. A draft for work outside focus waits: carrying it on is what
+  // kept a paused chain of slices going. Any open PR for an issue means it is
+  // in progress, a person's PR included.
   const linked = linkedPulls(every);
   for (const { pr } of seen) {
-    if (!pr.draft || isReviewOnly(pr) || !freeFor(pr, me)) continue;
+    if (!pr.draft || isReviewOnly(pr) || !freeFor(pr, me) || !pullFocus(pr)) continue;
     const ref = closingIssues(pr.body)[0] ?? partOfIssues(pr.body)[0] ?? null;
     const job = await lock({ job: 'implement', pull: pr.number, issue: byRef.get(ref)?.number ?? ref, title: pr.title, branch: pr.head.ref, resumed: true, lock: pr.number });
     if (job) return job;
   }
-  const mine = open.find((i) => providers(i).includes(me) && !linkedTo(linked, i).length && (!builder || focused.of(i)));
+  const mine = open.find((i) => providers(i).includes(me) && !linkedTo(linked, i).length && focused.of(i));
   if (mine) return { job: 'implement', issue: mine.number, title: mine.title, ...url(mine), resumed: true, lock: mine.number, claimed: true };
 
-  // 5. Then one ready work item. What the owner put in focus (the sprint,
-  // `swarm/focus`) goes to the front of the queue; a builder takes nothing else.
-  const ready = focused.order(open.filter(isReady)).filter((i) => !builder || focused.of(i));
+  // 5. Then one ready work item, and only one in focus (the sprint,
+  // `swarm/focus`, and what those name): with none claimable the tick has
+  // nothing to start. Highest priority first; between equals, the one more
+  // work waits on.
   const ctx = { can, linked };
   const skipped = [];
-  for (const issue of ready) {
+  const candidates = [];
+  for (const issue of open.filter((i) => isReady(i) && focused.of(i))) {
     const why = whyNotClaimable(issue, ctx);
     if (why) {
       if (!providers(issue).length) skipped.push({ issue: issue.number, why });
@@ -180,10 +184,29 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
       skipped.push({ issue: issue.number, why: `blocked by ${blockers.join(', ')}` });
       continue;
     }
-    const job = await lock({ job: 'implement', issue: issue.number, title: issue.title, ...url(issue), labels: labelNames(issue), lock: issue.number, ...(focused.of(issue) ? { focus: focused.of(issue) } : {}) });
+    candidates.push(issue);
+  }
+  for (const issue of await startOrder(gh, candidates, open)) {
+    const job = await lock({ job: 'implement', issue: issue.number, title: issue.title, ...url(issue), labels: labelNames(issue), lock: issue.number, focus: focused.of(issue) });
     if (job) return job; // else lost the race: the next one
   }
-  return { job: 'none', why: builder ? 'nothing in focus is claimable' : 'nothing claimable', skipped };
+  return { job: 'none', why: 'nothing in focus is claimable', skipped };
+}
+
+/**
+ * The order to start claimable work items in: Plane priority, urgent first;
+ * then the one more open work waits on, counted down the whole chain of
+ * "Blocked by" lines and Plane's blocking relations. Items equal on both keep
+ * the order they came in.
+ */
+export async function startOrder(gh, candidates, open) {
+  const blocks = blockGraph(open);
+  const ranked = await Promise.all(candidates.map(async (issue) => ({
+    issue,
+    priority: priorityRank(issue),
+    unblocks: downstream(blocks, issue.number, (await gh.blocking?.(issue)) ?? []).size,
+  })));
+  return ranked.sort((a, b) => a.priority - b.priority || b.unblocks - a.unblocks).map((r) => r.issue);
 }
 
 const ORDER = ['fix', 'hold', 'merge', 'review', 'implement'];

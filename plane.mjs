@@ -199,6 +199,7 @@ export function planeClient({
       labels: names.map((name) => ({ name })),
       labelIds,
       stage,
+      priority: raw.priority ?? 'none',
       state: stage === 'completed' || stage === 'cancelled' ? 'closed' : 'open',
       repo: itemRepo,
       // What a pull request or an issue body copied from GitHub may still call it: `#1680` in its own repository.
@@ -224,6 +225,13 @@ export function planeClient({
   /** The item as Plane has it now, never from the cache: claims are decided on it. */
   const fresh = async (key) => remember(shape(await api('GET', `work-items/${key}/`), await context()));
   const known = async (key) => (await items()).find((i) => i.key === key) ?? fresh(key);
+
+  const related = new Map(); // work item id -> its relations, asked once per client
+  const relations = (item) => {
+    if (!related.has(item.id)) related.set(item.id, context().then((c) => api('GET', `${c.base}/work-items/${item.id}/relations/`)));
+    return related.get(item.id);
+  };
+  const relationIds = (rel, kind) => (rel?.[kind] ?? []).map((r) => (typeof r === 'string' ? r : r.id ?? r.issue_id));
 
   let cycle = null;
   /** Ids of the work items in the project's current cycle: the sprint. */
@@ -371,21 +379,30 @@ export function planeClient({
      * item outside this project counts as open.
      */
     blockers: async (item) => {
-      const c = await context();
       const list = await items();
       const open = new Set();
       for (const ref of bodyBlockers(item.body)) {
         const other = await find(ref);
         if (other && other.state === 'open' && other.id !== item.id) open.add(other.key);
       }
-      const rel = await api('GET', `${c.base}/work-items/${item.id}/relations/`);
-      for (const r of rel?.blocked_by ?? []) {
-        const id = typeof r === 'string' ? r : r.id ?? r.issue_id;
+      for (const id of relationIds(await relations(item), 'blocked_by')) {
         const other = list.find((i) => i.id === id);
         if (!other) open.add(`${id} (in another project)`);
         else if (other.state === 'open') open.add(other.key);
       }
       return [...open];
+    },
+    /**
+     * The open work items Plane's "blocking" relations say wait on this one,
+     * by key. The description's side is read from the other items' "Blocked
+     * by" lines (rules.mjs, blockGraph).
+     */
+    blocking: async (item) => {
+      const list = await items();
+      return relationIds(await relations(item), 'blocking')
+        .map((id) => list.find((i) => i.id === id))
+        .filter((other) => other && other.state === 'open')
+        .map((other) => other.key);
     },
     /** The open work item a pull request or description refers to (`COUCHYUX-12`, `#1680`), or null. */
     find: (ref) => find(typeof ref === 'string' ? { key: ref } : { number: ref }),
@@ -426,6 +443,7 @@ export function tracker(gh, plane) {
     openIssues: plane.openIssues,
     subIssues: plane.subIssues,
     blockers: plane.blockers,
+    blocking: plane.blocking,
     createIssue: plane.createIssue,
     setStage: plane.setStage,
     addLink: plane.addLink,
