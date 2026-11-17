@@ -17,22 +17,24 @@
 //                                                after any job: the next one, while the tick has time left;
 //                                                --wrote lists the PRs this session wrote, which it won't review
 //   node ../swarm/agent.mjs finish           the end of the tick: take my lock off everything
-//   node ../swarm/agent.mjs claim 123        lock one issue or PR by number
-//   node ../swarm/agent.mjs release 123 "why"   unlock it, with a comment
-//   node ../swarm/agent.mjs needs-human 123 "question"
+//   node ../swarm/agent.mjs claim COUCHYUX-12   lock one work item (by key) or PR (by number)
+//   node ../swarm/agent.mjs release COUCHYUX-12 "why"   unlock it, with a comment
+//   node ../swarm/agent.mjs needs-human COUCHYUX-12 "question"
 //                                                hand it to a person: the comment, then swarm/needs-human
-//   node ../swarm/agent.mjs hold 123 "what it waits for"
-//                                                hold its merge: the comment, then swarm/hold
+//   node ../swarm/agent.mjs hold 57 "what it waits for"
+//                                                hold a PR's merge: the comment, then swarm/hold
 //
+// Work items are in Plane and pull requests on GitHub (plane.mjs, github.mjs).
 // A tick covers every repository in AGENT_REPOS (default: GITHUB_REPOSITORY and
-// getcouchy/couchy-agent), and each job names its `repo`. For a number in
-// another repository than the first, write it with the repository:
+// getcouchy/couchy-agent), and each job names its `repo`. For a PR in another
+// repository than the first, write it with the repository:
 // `claim getcouchy/couchy-agent#12`, `--wrote=12,getcouchy/couchy-agent#15`.
 //
 // AGENT_NAME is this agent's name (codex, grok, claude-2…), which makes its
 // label swarm/agent/<name>; AGENT_CAN lists what its sandbox has, matching
 // swarm/needs/* labels ("ios-sim,design"); // AGENT_ROLE=focus runs a builder tick (PROTOCOL.md, "Builder ticks").
-// Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy).
+// Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy), and
+// PLANE_BASE_URL and PLANE_API_TOKEN (plane.mjs has the rest).
 // TICK_EVENTS_FILE, when set, gets one JSON line per command that ran: the
 // job, the locks taken and released, the handoff, the GitHub requests left
 // (commands.mjs).
@@ -42,6 +44,7 @@ import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run, UsageError, writeEvent } from './commands.mjs';
 import { reposFromEnv } from './github.mjs';
+import { planeFromEnv, tracker } from './plane.mjs';
 import { syncHere, toolsFromMain } from './preflight.mjs';
 import { isValidProvider } from './rules.mjs';
 
@@ -75,7 +78,7 @@ if (!process.env.AGENT_NO_SYNC && !process.env.AGENT_TOOLS_FROM_MAIN) {
   }
 }
 
-const clients = reposFromEnv();
+const clients = reposFromEnv().map((gh) => tracker(gh, planeFromEnv(gh.repo)));
 
 let checkout = null;
 if (cmd === 'next' && !process.env.AGENT_NO_SYNC) {

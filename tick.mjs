@@ -1,11 +1,14 @@
 // One agent's tick (see PROTOCOL.md): what should this agent do next? In
 // order: fix a pull request that needs it, keep auto-merge right, review,
-// carry on unfinished work, then start one approved issue. Takes a client from github.mjs, so tests pass a fake.
+// carry on unfinished work, then start one ready work item. Takes a client
+// from plane.mjs's tracker() (pull requests on GitHub, work items in Plane),
+// so tests pass a fake.
 
+import { isKey } from './plane.mjs';
 import { likelyWork } from './preflight.mjs';
 import {
-  AGENT_PREFIX, DESK, FOCUS, NIGHTLY, READY, REVIEWED, closingIssues, focus, partOfIssues, claimWinner, fixReasons, freeFor, handsOff, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
-  labelNames, linkedPulls, mergeHeld, mergeReady, needsReview, providers, whyNotClaimable,
+  AGENT_PREFIX, DESK, FOCUS, REVIEWED, closingIssues, focus, partOfIssues, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
+  labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, providers, refsOf, whyNotClaimable,
 } from './rules.mjs';
 
 /**
@@ -20,7 +23,11 @@ export async function claim(gh, number, me) {
   await gh.addLabel(number, AGENT_PREFIX + me);
   if (gh.dryRun) return true;
   const after = await gh.issue(number);
-  if (claimWinner(after) === me) return true;
+  if (claimWinner(after) === me) {
+    // The board shows a claimed work item as In Progress.
+    if (isKey(number) && after.stage === 'unstarted') await gh.setStage(number, 'started');
+    return true;
+  }
   await gh.removeLabel(number, AGENT_PREFIX + me);
   return false;
 }
@@ -94,9 +101,10 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
   const subs = new Map();
   for (const f of labelled) subs.set(f.number, await gh.subIssues(f.number));
   const focused = focus(labelled, subs);
-  // A PR is in focus when an issue it closes, or is part of, is.
-  const byNumber = new Map(open.map((i) => [i.number, i]));
-  const pullFocus = (pr) => [...closingIssues(pr.body), ...partOfIssues(pr.body)].some((n) => byNumber.has(n) && focused.of(byNumber.get(n)));
+  // A PR is in focus when an item it closes, or is part of, is. It may name
+  // the item by its key or by the GitHub issue it was copied from.
+  const byRef = new Map(open.flatMap((i) => refsOf(i).map((r) => [r, i])));
+  const pullFocus = (pr) => [...closingIssues(pr.body), ...partOfIssues(pr.body)].some((n) => byRef.has(n) && focused.of(byRef.get(n)));
   // With `reviewed` required on main, GitHub holds the merge for the verdict
   // itself, so auto-merge goes on as soon as a PR is open.
   const gated = (await gh.requiredChecks()).includes(REVIEWED);
@@ -149,19 +157,16 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
   const linked = linkedPulls(every);
   for (const { pr } of seen) {
     if (!pr.draft || isReviewOnly(pr) || !freeFor(pr, me)) continue;
-    const job = await lock({ job: 'implement', pull: pr.number, issue: closingIssues(pr.body)[0] ?? partOfIssues(pr.body)[0] ?? null, title: pr.title, branch: pr.head.ref, resumed: true, lock: pr.number });
+    const ref = closingIssues(pr.body)[0] ?? partOfIssues(pr.body)[0] ?? null;
+    const job = await lock({ job: 'implement', pull: pr.number, issue: byRef.get(ref)?.number ?? ref, title: pr.title, branch: pr.head.ref, resumed: true, lock: pr.number });
     if (job) return job;
   }
-  const mine = open.find((i) => providers(i).includes(me) && !linked.get(i.number)?.length && (!builder || focused.of(i)));
-  if (mine) return { job: 'implement', issue: mine.number, title: mine.title, resumed: true, lock: mine.number, claimed: true };
+  const mine = open.find((i) => providers(i).includes(me) && !linkedTo(linked, i).length && (!builder || focused.of(i)));
+  if (mine) return { job: 'implement', issue: mine.number, title: mine.title, ...url(mine), resumed: true, lock: mine.number, claimed: true };
 
-  // 5. Then one approved issue. What the owner marked `focus` goes to the
-  // front of the queue, after main's failing simulator flows; a builder
-  // takes nothing else.
-  // Main's failing simulator flows (the nightly run's issue) come first: every
-  // PR's simulator run is judged against them.
-  const nightly = builder ? [] : await gh.openIssues([NIGHTLY]);
-  const ready = [...nightly, ...focused.order(await gh.openIssues([READY])).filter((i) => !builder || focused.of(i))];
+  // 5. Then one ready work item. What the owner put in focus (the sprint,
+  // `swarm/focus`) goes to the front of the queue; a builder takes nothing else.
+  const ready = focused.order(open.filter(isReady)).filter((i) => !builder || focused.of(i));
   const ctx = { can, linked };
   const skipped = [];
   for (const issue of ready) {
@@ -175,13 +180,14 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
       skipped.push({ issue: issue.number, why: `blocked by ${blockers.join(', ')}` });
       continue;
     }
-    const job = await lock({ job: 'implement', issue: issue.number, title: issue.title, labels: labelNames(issue), lock: issue.number, ...(focused.of(issue) ? { focus: focused.of(issue) } : {}) });
+    const job = await lock({ job: 'implement', issue: issue.number, title: issue.title, ...url(issue), labels: labelNames(issue), lock: issue.number, ...(focused.of(issue) ? { focus: focused.of(issue) } : {}) });
     if (job) return job; // else lost the race: the next one
   }
   return { job: 'none', why: builder ? 'nothing in focus is claimable' : 'nothing claimable', skipped };
 }
 
 const ORDER = ['fix', 'hold', 'merge', 'review', 'implement'];
+const url = (item) => (item.html_url ? { url: item.html_url } : {});
 
 /**
  * `next` over several repositories (couchy and couchy-agent): the job that

@@ -18,8 +18,9 @@ import { likelyWork, sync, toolsStale } from './preflight.mjs';
 const NOW = Date.parse('2026-11-10T12:00:00Z');
 const ago = (h) => new Date(NOW - h * 3_600_000).toISOString();
 const L = (...names) => names.map((name) => ({ name }));
+// A work item, shaped as plane.mjs shapes one; in Todo unless `stage` says otherwise.
 const issue = (number, labels = ['couchy-ux/approved'], extra = {}) =>
-  ({ number, title: `Issue ${number}`, state: 'open', labels: L(...labels), created_at: ago(100), ...extra });
+  ({ number, title: `Issue ${number}`, state: 'open', stage: 'unstarted', labels: L(...labels), created_at: ago(100), updated_at: ago(100), ...extra });
 const pull = (number, labels, extra = {}) => ({
   number, title: `PR ${number}`, labels: L(...labels), draft: false, body: '', head: { sha: `sha${number}` },
   user: { login: 'owner' }, created_at: ago(1), ...extra,
@@ -108,7 +109,9 @@ test('what makes an issue unclaimable', () => {
   const ctx = { can: new Set(['ios-sim']), linked: linkedPulls([pull(50, [], { body: 'Closes #6' })]) };
   assert.equal(whyNotClaimable(issue(1), ctx), null);
   assert.equal(whyNotClaimable(issue(1, ['couchy-ux/approved', 'swarm/needs/ios-sim']), ctx), null);
-  assert.match(whyNotClaimable(issue(2, ['couchy-ux/needs-review']), ctx), /not couchy-ux\/approved/);
+  assert.match(whyNotClaimable(issue(2, ['couchy-ux/needs-review'], { stage: 'backlog' }), ctx), /not ready: in backlog/);
+  assert.equal(whyNotClaimable(issue(2, [], { stage: 'started' }), ctx), null, 'In Progress with nobody on it and no PR is work let go of');
+  assert.match(whyNotClaimable(issue(9, ['swarm/desk'], { stage: 'backlog' }), ctx), /Agent desk/);
   assert.match(whyNotClaimable(issue(3, ['couchy-ux/approved', 'swarm/agent/grok']), ctx), /held by grok/);
   assert.match(whyNotClaimable(issue(4, ['couchy-ux/approved', 'swarm/needs/design']), ctx), /needs design/);
   assert.equal(whyNotClaimable(issue(5, ['couchy-ux/approved', 'area/app']), ctx), null, 'an area label does not queue the work');
@@ -256,9 +259,9 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
       issue(1, ['couchy-ux/approved', 'swarm/agent/grok']), // lapsed
       issue(2, ['couchy-ux/approved', 'swarm/agent/grok', 'swarm/agent/codex']), // doubled, has a PR
       issue(3, ['couchy-ux/approved', 'swarm/agent/claude']), // fresh
-      issue(4), // ready too long
-      issue(5), // ready, but only just
-      issue(6, ['couchy-ux/approved', 'couchy-ux/needs-review', 'lifecycle/claude-squad']),
+      issue(4, undefined, { updated_at: ago(5) }), // ready too long
+      issue(5, undefined, { updated_at: ago(1) }), // ready, but only just
+      issue(6, ['couchy-ux/approved', 'couchy-ux/needs-review', 'lifecycle/claude-squad'], { updated_at: ago(1) }),
       issue(7, ['swarm/needs-human']),
       issue(90, ['swarm/desk'], { title: 'Agent desk', body: '<!-- agent-desk-state: ["ready:4"] -->' }),
     ],
@@ -273,8 +276,7 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
     ],
     events: {
       1: [labeled('swarm/agent/grok', 8)], 2: [labeled('swarm/agent/grok', 0.5), labeled('swarm/agent/codex', 0.5)], 3: [labeled('swarm/agent/claude', 1)],
-      35: [labeled('swarm/agent/grok', 3)], 4: [labeled('couchy-ux/approved', 5)],
-      5: [labeled('couchy-ux/approved', 1)], 6: [labeled('couchy-ux/approved', 1)],
+      35: [labeled('swarm/agent/grok', 3)],
       33: [labeled('swarm/hold', 1)], 34: [labeled('swarm/hold', 30)],
     },
     checks: { sha31: [{ name: 'check', conclusion: 'failure', completed_at: ago(3) }] },
@@ -704,7 +706,7 @@ test('focus: what the owner labelled goes to the front of the queue', async () =
   const withSubs = focus([seq], new Map([[1412, [40, 1223, 30]]]));
   assert.equal(withSubs.of(issue(30)), 1412);
   assert.deepEqual(withSubs.order([issue(7), issue(30), issue(40), issue(1223), issue(1300)]).map((i) => i.number), [1300, 1223, 40, 30, 7]);
-  const viaLink = await next(fake({ issues: [issue(3, ['couchy-ux/approved']), issue(1412, ['swarm/focus']), issue(30, ['couchy-ux/approved'])], subIssues: { 1412: [30] } }), { me: 'codex' });
+  const viaLink = await next(fake({ issues: [issue(3, ['couchy-ux/approved']), issue(1412, ['swarm/focus'], { stage: 'backlog' }), issue(30, ['couchy-ux/approved'])], subIssues: { 1412: [30] } }), { me: 'codex' });
   assert.deepEqual([viaLink.issue, viaLink.focus], [30, 1412]);
 
   const queue = () => [
@@ -784,7 +786,7 @@ test('a claim under both the old name and today\'s is one holder; stale tools ar
 });
 
 test('a builder tick builds what is in focus and nothing else; other ticks review focus first', async () => {
-  const seq = issue(1412, ['swarm/focus'], { body: 'Wave 1: #1223' });
+  const seq = issue(1412, ['swarm/focus'], { body: 'Wave 1: #1223', stage: 'backlog' });
   const issues = () => [issue(3), seq, issue(1223), issue(1224, ['couchy-ux/approved', 'swarm/agent/grok'], { body: 'Sequence: #1412' })];
   const theirs = pull(60, ['swarm/pr'], { body: 'Closes #9', created_at: ago(5) });
   const theirsFocus = pull(61, ['swarm/pr'], { body: 'Closes #1224', created_at: ago(1) });
@@ -810,19 +812,6 @@ test('a builder tick builds what is in focus and nothing else; other ticks revie
   // An ordinary tick reviews the PR in focus before an older one that isn't.
   job = await next(fake({ issues: issues(), pulls: [theirs, theirsFocus] }), { me: 'codex' });
   assert.deepEqual([job.job, job.pull, job.focus], ['review', 61, true]);
-});
-
-test('main\'s failing simulator flows (the nightly issue) come before approved issues, for an agent with a simulator', async () => {
-  const nightly = issue(1600, ['ios-sim/nightly', 'swarm/needs/ios-sim']);
-  const focused = issue(1223, ['couchy-ux/approved', 'swarm/focus']);
-  assert.equal(whyNotClaimable(nightly, { can: new Set(['ios-sim']) }), null, 'no UX approval needed');
-  let job = await next(fake({ issues: [issue(3), focused, nightly] }), { me: 'claude-2', can: new Set(['ios-sim']) });
-  assert.deepEqual([job.job, job.issue], ['implement', 1600]);
-  // An agent without a simulator passes it by; a builder takes only focus.
-  job = await next(fake({ issues: [issue(3), nightly] }), { me: 'grok' });
-  assert.deepEqual([job.job, job.issue], ['implement', 3]);
-  job = await next(fake({ issues: [focused, nightly] }), { me: 'codex-focus-1', role: 'focus', can: new Set(['ios-sim']) });
-  assert.deepEqual([job.job, job.issue], ['implement', 1223]);
 });
 
 test('swarm/hands-off takes an issue or a PR out of the agents\' hands', async () => {
