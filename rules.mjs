@@ -8,11 +8,9 @@
 // and `started` state groups. In Progress with nobody on it and no PR open is
 // work an agent let go of; Backlog is not ready yet.
 export const READY_STAGES = ['unstarted', 'started'];
-export const STAGES = ['couchy-ux/needs-review', 'couchy-ux/needs-revision', 'couchy-ux/approved'];
-export const SQUAD = 'lifecycle/claude-squad';
 export const EPIC = 'kind/epic';
 // Every label the agents' protocol owns is under `swarm/`, so a person reading
-// an issue's labels can tell them from the product's and the squad's.
+// an issue's labels can tell them from the product's.
 export const NS = 'swarm/';
 export const NEEDS_HUMAN = `${NS}needs-human`;
 export const HOLD = `${NS}hold`;

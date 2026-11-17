@@ -265,7 +265,6 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
       issue(3, ['couchy-ux/approved', 'swarm/agent/claude']), // fresh
       issue(4, undefined, { updated_at: ago(5) }), // ready too long
       issue(5, undefined, { updated_at: ago(1) }), // ready, but only just
-      issue(6, ['couchy-ux/approved', 'couchy-ux/needs-review', 'lifecycle/claude-squad'], { updated_at: ago(1) }),
       issue(7, ['swarm/needs-human']),
       issue(90, ['swarm/desk'], { title: 'Agent desk', body: '<!-- agent-desk-state: ["ready:4"] -->' }),
     ],
@@ -296,14 +295,14 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
   assert.equal(result.fixed.length, 3);
   assert.deepEqual((await gh.issue(35)).labels.map((l) => l.name), ['swarm/pr']);
   // #1 was only just released, so it is not yet "waiting".
-  assert.deepEqual(result.overdue.map((o) => o.key).sort(), ['draft:36', 'fix:31', 'held:33', 'hold:34', 'human:7', 'quiet:grok/1', 'ready:4', 'review:30', 'review:34', 'stages:6']);
+  assert.deepEqual(result.overdue.map((o) => o.key).sort(), ['draft:36', 'fix:31', 'held:33', 'hold:34', 'human:7', 'quiet:grok/1', 'ready:4', 'review:30', 'review:34']);
 
   await writeDesk(gh, { ...result, now: NOW });
   const posted = gh.log.slice(4);
   assert.deepEqual(posted, ['edit 90', 'comment 90']);
   const desk = await gh.issue(90);
   assert.match(desk.body, /### Needs you\n\n- #7 Issue 7/);
-  assert.match(desk.body, /agent-desk-state: \["draft:36","fix:31","held:33","hold:34","human:7","quiet:grok\/1","ready:4","review:30","review:34","stages:6"\]/);
+  assert.match(desk.body, /agent-desk-state: \["draft:36","fix:31","held:33","hold:34","human:7","quiet:grok\/1","ready:4","review:30","review:34"\]/);
 
   const by = (rows) => Object.fromEntries(rows.map((r) => [r.number, r]));
   assert.equal(by(result.pulls)[36].state, 'draft');
@@ -399,7 +398,7 @@ test('sweep metrics: one series per item, limits in seconds', () => {
     result: {
       pulls: [{ number: 30, state: 'needs_review', agent: '' }], issues: [{ number: 3, state: 'locked', agent: 'claude' }],
       locks: [{ number: 3, agent: 'claude', type: 'issue', since: ago(1) }], heartbeats: [{ agent: 'grok/1', at: ago(20) }],
-      overdue: [{ kind: 'quiet', number: null, agent: 'grok/1', since: ago(20) }, { kind: 'stages', number: 6, agent: '', since: null }],
+      overdue: [{ kind: 'quiet', number: null, agent: 'grok/1', since: ago(20) }, { kind: 'human', number: 6, agent: '', since: null }],
       fixedCounts: { lock_lapsed: 2, lock_doubled: 1 },
     },
     counters: { needsHuman: { 'issue|claude': 3 }, hold: {} }, migrated: 0, limits: LIMITS, now: NOW, startedAt: NOW - 4000, rateLimit: 4321,
@@ -408,7 +407,7 @@ test('sweep metrics: one series per item, limits in seconds', () => {
   assert.match(out, /swarm_pulls\{number="30",state="needs_review",agent=""\} 1\n/);
   assert.match(out, /swarm_lock_age_seconds\{number="3",agent="claude",type="issue"\} 3600\n/);
   assert.match(out, /swarm_overdue_age_seconds\{number="",kind="quiet",agent="grok\/1"\} 72000\n/);
-  assert.match(out, /swarm_overdue_age_seconds\{number="6",kind="stages",agent=""\} 0\n/);
+  assert.match(out, /swarm_overdue_age_seconds\{number="6",kind="human",agent=""\} 0\n/);
   assert.match(out, /swarm_limit_seconds\{limit="claim"\} 5400\n/);
   assert.match(out, /swarm_limit_seconds\{limit="heartbeat"\} 28800\n/);
   assert.match(out, /swarm_sweep_fixed\{action="label_migrated"\} 0\n/);

@@ -26,7 +26,7 @@ import { pushRun } from './metrics.mjs';
 import { planeFromEnv, tracker } from './plane.mjs';
 import { focusOf } from './tick.mjs';
 import {
-  AGENT_PREFIX, BLOCKED, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
+  AGENT_PREFIX, BLOCKED, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
   blockGraph, downstream, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED,
 } from './rules.mjs';
@@ -241,15 +241,6 @@ export async function sweep(gh, { now = Date.now(), limits }) {
         ? `${refText(pr.number)} (${author}) has waited ${age(hoursSince(pushedAt, now))} for another review since its author pushed.`
         : `${refText(pr.number)} (${author}) has been open ${age(hoursSince(pr.created_at, now))} with no review from an agent or a person.`,
       { ...item, since: again ? pushedAt : pr.created_at });
-    }
-  }
-
-  // Squad issues in two stages at once.
-  for (const issue of issues) {
-    const names = labelNames(issue);
-    const stages = STAGES.filter((s) => names.includes(s));
-    if (names.includes(SQUAD) && !names.includes(EPIC) && stages.length > 1) {
-      flag('Labels', `stages:${issue.number}`, `${refText(issue.number)} carries ${stages.map((s) => `\`${s}\``).join(' and ')}; it should have one.`, { number: issue.number, agent: agentOf(issue) });
     }
   }
 

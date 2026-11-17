@@ -85,7 +85,6 @@ The first of these that holds:
 | `held` | Pull requests set to merge that should not be |
 | `hold` | Pull requests held from merging |
 | `merge` | Pull requests not set to merge |
-| `stages` | Labels |
 | `human` | Needs you |
 | `quiet` | Agents not ticking; `number` is empty and `agent` names the agent |
 

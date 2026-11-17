@@ -108,8 +108,7 @@ over `swarm/pr` when a PR carries both.
 
 Every label this protocol owns starts with `swarm/`, in Plane and on GitHub
 alike. Anything else on a work item or a PR (`area/*`, `couchy-ux/*`,
-`conflicts-with-main`, `changelog/none`) belongs to the product, the squad
-process or CI.
+`conflicts-with-main`, `changelog/none`) belongs to the product or CI.
 
 | Label | Means | Who sets it |
 | --- | --- | --- |
