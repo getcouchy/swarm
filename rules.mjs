@@ -147,34 +147,6 @@ export function bodyBlockers(body) {
   return [...out.values()];
 }
 
-const mentions = (body) => [...(body ?? '').matchAll(new RegExp(String.raw`(?<![\w/-])#(\d+)|\b(${KEY_RE})\b`, 'g'))]
-  .map((m) => (m[1] ? Number(m[1]) : m[2]));
-
-/**
- * What the owner put at the front of the queue: the current cycle (the
- * sprint) and the `swarm/focus` label, on one item or on one that lists
- * others. An item is in focus when it is in the sprint or carries the label,
- * when its description mentions an item that is ("Part of COUCHYUX-12"),
- * when a focused item's description names it, or when it is a child of a
- * focused item.
- * focusedIssues: the open items in the sprint or labelled `swarm/focus`.
- * subIssues: focused item number -> its children's numbers.
- * Returns { of(issue): the focused item's number, or null when it is not in focus }.
- */
-export function focus(focusedIssues, subIssues = new Map()) {
-  const owners = new Map(); // any reference to a focused item -> its number
-  for (const f of focusedIssues) for (const r of refsOf(f)) owners.set(r, f.number);
-  const listed = new Map(); // reference -> the focused item that lists it
-  for (const f of focusedIssues) {
-    for (const n of [...mentions(f.body), ...(subIssues.get(f.number) ?? [])]) {
-      if (!listed.has(n) && !refsOf(f).includes(n)) listed.set(n, f.number);
-    }
-  }
-  const hit = (issue, map) => refsOf(issue).map((r) => map.get(r)).find((v) => v != null);
-  const of = (issue) => hit(issue, owners) ?? hit(issue, listed) ?? mentions(issue.body).map((n) => owners.get(n)).find((v) => v != null) ?? null;
-  return { of };
-}
-
 // Labels that say a work item changes what people see and use, and those that
 // say it doesn't. needsQA reads them.
 const UI_LABELS = ['platform/web', 'platform/ios', 'area/app', 'web/ux-buildout'];

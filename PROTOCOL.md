@@ -425,14 +425,14 @@ Decide what you can. A question with a likely right answer is yours to answer:
 
 ## Focus
 
-The owner says what matters most in two ways: the project's **current cycle**
-(the sprint) in Plane, and the `swarm/focus` label on a single work item, or on
-one that lists others. A work item is in focus when it is in the sprint or
-carries the label, when its description mentions an open item that is ("Part
-of COUCHYUX-12"), when a focused item's description names it, or when it is a
-child of a focused item (Plane's parent link, up to three levels down). A
-blocker a sprint item names is in focus by that rule, so a chain in the sprint
-is worked from its first open link.
+The owner says what matters most with the project's **current cycle** (the
+sprint) in Plane, and the `swarm/focus` label on a single work item. A work
+item is in focus when it is in the sprint or carries the label, when it is a
+child of one that is (Plane's parent link, up to three levels down), or when
+one of those waits on it: its blockers, their blockers, and so on, so a chain
+in the sprint is worked from its first open link. Naming a work item in a
+description ("Part of COUCHYUX-12", a list of next steps) does not put it in
+focus.
 
 Step 5 starts only work in focus, in this order:
 

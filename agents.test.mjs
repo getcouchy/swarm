@@ -5,12 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, focus, lockLapsed, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
+  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, whyNotClaimable,
 } from './rules.mjs';
 import { client } from './github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from './sweep.mjs';
 import { registry } from './metrics.mjs';
-import { claim, firstJob, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
+import { claim, firstJob, focusOf, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
 import { run, UsageError, writeEvent } from './commands.mjs';
 import { report, status } from './reviewed.mjs';
 import { likelyWork, sync, toolsStale } from './preflight.mjs';
@@ -719,32 +719,31 @@ test('a checkout that was left alone is the job: nothing is claimed or offered',
 });
 
 test('focus: agents start only what is in focus, highest priority first, then what most work waits on', async () => {
-  const seq = issue(1412, ['swarm/focus'], { body: 'Wave 1: 1. #1300 Remove in the open 2. #1223 size rows. Deferred: #1189.' });
-  const f = focus([seq]);
-  assert.equal(f.of(seq), 1412);
-  assert.equal(f.of(issue(5, [], { body: 'Part of #1400. Sequence: #1412 wave 2, step 18.' })), 1412);
-  assert.equal(f.of(issue(5, [], { body: 'Part of #1400. See getcouchy/couchy-agent#1412 and #14120.' })), null);
-  assert.equal(f.of(issue(1223, [], { body: 'No mention of the sequence.' })), 1412, 'named by the focused issue');
-  // Sub-issues the body does not name are in focus too.
-  assert.equal(focus([seq], new Map([[1412, [30]]])).of(issue(30)), 1412);
+  // In focus: the sprint, its children, and what those wait on, down the chain. A description naming an item is not enough.
+  const seq = issue(1412, ['swarm/focus'], { body: 'Wave 1: #1300. Deferred: #1189.' });
+  const open = [seq, issue(1300, []), issue(1189, []), issue(30, []), issue(31, []), issue(32, []), issue(5, [], { body: 'Sequence: #1412 wave 2.' })];
+  const f = await focusOf(fake({ issues: open, subIssues: { 1412: [30] }, blockers: { 1412: ['#31'], 30: [32] } }), open);
+  assert.deepEqual([1412, 30, 31, 32].map((n) => f.of(issue(n))), [1412, 1412, 1412, 1412]);
+  assert.deepEqual([1300, 1189, 5].map((n) => f.of(open.find((i) => i.number === n))), [null, null, null], 'named in a description, or naming the sprint item');
   const viaLink = await next(fake({ issues: [issue(3, ['couchy-ux/approved']), issue(1412, ['swarm/focus'], { stage: 'backlog' }), issue(30, ['couchy-ux/approved'])], subIssues: { 1412: [30] } }), { me: 'codex' });
   assert.deepEqual([viaLink.issue, viaLink.focus], [30, 1412]);
 
   const queue = () => [
     issue(3, ['couchy-ux/approved']), // older, not in focus
     issue(1412, ['swarm/focus', 'kind/epic']),
-    issue(1402, ['couchy-ux/approved'], { body: 'Sequence: #1412 wave 2' }),
-    issue(1403, ['couchy-ux/approved'], { body: 'Sequence: #1412 wave 3' }),
+    issue(1402, ['couchy-ux/approved']),
+    issue(1403, ['couchy-ux/approved']),
   ];
-  let job = await next(fake({ issues: queue() }), { me: 'codex' });
+  const subIssues = { 1412: [1402, 1403] };
+  let job = await next(fake({ issues: queue(), subIssues }), { me: 'codex' });
   assert.deepEqual([job.issue, job.focus], [1402, 1412]);
   // With nothing in focus claimable the tick starts nothing, though #3 is free.
-  const gh = fake({ issues: queue(), blockers: { 1402: ['#9'], 1403: ['#9'] } });
+  const gh = fake({ issues: queue(), subIssues, blockers: { 1402: ['#9'], 1403: ['#9'] } });
   job = await next(gh, { me: 'codex' });
   assert.deepEqual([job.job, job.why], ['none', 'nothing in focus is claimable']);
   assert.deepEqual(gh.log, []);
   // A review still comes before a focused issue.
-  job = await next(fake({ issues: queue(), pulls: [pull(60, ['swarm/pr'])] }), { me: 'codex' });
+  job = await next(fake({ issues: queue(), subIssues, pulls: [pull(60, ['swarm/pr'])] }), { me: 'codex' });
   assert.equal(job.job, 'review');
   // Across repositories, the focused issue wins; the home repository's unfocused one is not taken.
   const a = fake({ issues: [issue(3, ['couchy-ux/approved'])] });
@@ -840,13 +839,14 @@ test('a claim under both the old name and today\'s is one holder; stale tools ar
 });
 
 test('a builder tick builds what is in focus and nothing else; other ticks review focus first', async () => {
-  const seq = issue(1412, ['swarm/focus'], { body: 'Wave 1: #1223', stage: 'backlog' });
-  const issues = () => [issue(3, ['couchy-ux/approved']), seq, issue(1223, ['couchy-ux/approved']), issue(1224, ['couchy-ux/approved', 'swarm/agent/grok'], { body: 'Sequence: #1412' })];
+  const seq = issue(1412, ['swarm/focus'], { stage: 'backlog' });
+  const issues = () => [issue(3, ['couchy-ux/approved']), seq, issue(1223, ['couchy-ux/approved']), issue(1224, ['couchy-ux/approved', 'swarm/agent/grok'])];
+  const subIssues = { 1412: [1223, 1224] };
   const theirs = pull(60, ['swarm/pr'], { body: 'Closes #9', created_at: ago(5) });
   const theirsFocus = pull(61, ['swarm/pr'], { body: 'Closes #1224', created_at: ago(1) });
 
   // A builder skips the review and the older unfocused issue, and takes the focused one.
-  let gh = fake({ issues: issues(), pulls: [theirs, theirsFocus] });
+  let gh = fake({ issues: issues(), subIssues, pulls: [theirs, theirsFocus] });
   let job = await next(gh, { me: 'codex-focus-1', role: 'focus' });
   assert.deepEqual([job.job, job.issue, job.focus], ['implement', 1223, 1412]);
   assert.deepEqual(gh.log, ['add 1223 swarm/agent/codex-focus-1']);
@@ -855,16 +855,16 @@ test('a builder tick builds what is in focus and nothing else; other ticks revie
   assert.deepEqual([job.job, job.why], ['none', 'nothing in focus is claimable']);
   // A PR in focus that needs work comes first, whoever opened it; one outside focus is not a builder's.
   const mine = pull(62, ['swarm/pr'], { body: 'Closes #1223' });
-  job = await next(fake({ issues: issues(), pulls: [mine], checks: { sha62: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex-focus-1', role: 'focus' });
+  job = await next(fake({ issues: issues(), subIssues, pulls: [mine], checks: { sha62: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex-focus-1', role: 'focus' });
   assert.deepEqual([job.job, job.pull], ['fix', 62]);
-  job = await next(fake({ issues: [seq], pulls: [theirs], checks: { sha60: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex-focus-1', role: 'focus' });
+  job = await next(fake({ issues: [seq], subIssues, pulls: [theirs], checks: { sha60: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex-focus-1', role: 'focus' });
   assert.equal(job.job, 'none');
   // It turns auto-merge on for a PR in focus where reviewed is required, and leaves the others.
-  job = await next(fake({ issues: issues(), pulls: [theirs, mine], required: ['reviewed'] }), { me: 'codex-focus-1', role: 'focus' });
+  job = await next(fake({ issues: issues(), subIssues, pulls: [theirs, mine], required: ['reviewed'] }), { me: 'codex-focus-1', role: 'focus' });
   assert.deepEqual([job.job, job.pull], ['merge', 62]);
 
   // An ordinary tick reviews the PR in focus before an older one that isn't.
-  job = await next(fake({ issues: issues(), pulls: [theirs, theirsFocus] }), { me: 'codex' });
+  job = await next(fake({ issues: issues(), subIssues, pulls: [theirs, theirsFocus] }), { me: 'codex' });
   assert.deepEqual([job.job, job.pull, job.focus], ['review', 61, true]);
 });
 
