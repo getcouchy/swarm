@@ -15,11 +15,15 @@ export class UsageError extends Error {}
 const WORK = ['fix', 'hold', 'merge', 'review', 'implement'];
 // A work item goes out under its sequence number with its key beside it, so a
 // line's repo, number and type still name one thing.
-const item = (repo, ref, type) => (isKey(ref) ? { repo, number: Number(ref.split('-').pop()), type: 'issue', key: ref } : { repo, number: ref, type });
+// A title that isn't there costs the field, nothing more.
+const item = (repo, ref, type, title) => ({
+  ...(isKey(ref) ? { repo, number: Number(ref.split('-').pop()), type: 'issue', key: ref } : { repo, number: ref, type }),
+  ...(typeof title === 'string' ? { title } : {}),
+});
 // A job's item is its lock, else its pull, else its issue; a pull when that number is the job's pull.
 const jobItem = (job) => {
   const number = job.lock ?? job.pull ?? job.issue;
-  return item(job.repo, number, number === job.pull ? 'pull' : 'issue');
+  return item(job.repo, number, number === job.pull ? 'pull' : 'issue', job.title);
 };
 // What a next or more line says about the job it offered.
 const offered = (out) => ({
@@ -27,7 +31,13 @@ const offered = (out) => ({
   ...(WORK.includes(out.job) ? jobItem(out) : {}),
   ...(out.job === 'none' ? { why: out.why, skipped: (out.repos ?? []).flatMap((r) => (r.skipped ?? []).map((s) => ({ repo: r.repo, ...s }))) } : {}),
 });
-const typeOf = async (client, ref) => (isKey(ref) || !(await client.issue(ref)).pull_request ? 'issue' : 'pull');
+// The item a claim, release or handoff acted on, for its line: a work item as
+// the tracker last read it during the command, a PR from one more read of it.
+const read = async (client, ref) => {
+  if (isKey(ref)) return item(client.repo, ref, 'issue', client.seen?.(ref)?.title);
+  const i = await client.issue(ref);
+  return item(client.repo, ref, i.pull_request ? 'pull' : 'issue', i.title);
+};
 /** The fewest GitHub requests any of the clients has left, or null before any response. */
 const rateLimit = (clients) => {
   const left = clients.map((c) => c.rateLimitRemaining?.()).filter((n) => n != null);
@@ -64,7 +74,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
     const released = [];
     for (const c of clients) {
       const items = await (soft ? releaseAll(c, me).catch(() => []) : releaseAll(c, me));
-      released.push(...items.map((i) => item(c.repo, i.number, i.type)));
+      released.push(...items.map((i) => item(c.repo, i.number, i.type, i.title)));
     }
     return released;
   };
@@ -112,7 +122,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
     const { client, number } = ref(args[0]);
     const won = await claim(client, number, me);
     return done({ repo: client.repo, issue: number, claimed: won }, async () => {
-      const it = item(client.repo, number, await typeOf(client, number));
+      const it = await read(client, number);
       return { ...it, claimed: won ? [it] : [], ...(won ? {} : { lost: true }) };
     });
   }
@@ -120,7 +130,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
     const { client, number } = ref(args[0]);
     await release(client, number, me, args.slice(1).join(' '));
     return done({ repo: client.repo, issue: number, released: true }, async () => {
-      const it = item(client.repo, number, await typeOf(client, number));
+      const it = await read(client, number);
       return { ...it, released: [it] };
     });
   }
@@ -142,7 +152,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
     }
     // Not handed off until the label is on: no line for the runner to count.
     if (!out.labelled) return { out, event: null };
-    return done(out, async () => item(client.repo, number, await typeOf(client, number)));
+    return done(out, () => read(client, number));
   }
   throw new UsageError(USAGE);
 }
