@@ -481,10 +481,11 @@ it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
 "Agent sweep"). It removes a lapsed claim and settles a doubled one, moves
 work items with their pull requests (In Progress with a link while one is
 open, Done once one that closes them merges), and it keeps the **Agent desk**
-work item in Plane current with whatever is overdue: a ready work item no
-agent has taken, a PR without a review, a failing PR its author left, a PR
+work item in Plane current with whatever is overdue: a ready work item in focus
+no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
-labelled `swarm/needs-human`, an agent that stopped ticking.
+labelled `swarm/needs-human` (with the work items it holds up, those in focus
+marked), an agent that stopped ticking.
 
 Another job there runs `reviewed.mjs` every 2 minutes and posts the `reviewed`
 status ("Merging") on every open PR's head. A PR whose newest head has no

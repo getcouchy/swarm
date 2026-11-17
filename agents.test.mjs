@@ -322,6 +322,24 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
   assert.deepEqual([quiet.number, quiet.agent], [null, 'grok/1']);
 });
 
+test('sweep: only work in focus is waiting for an agent; Needs you says what each item holds up', async () => {
+  const issues = [
+    issue(1, ['couchy-ux/approved']), // ready for days, but outside focus
+    issue(2), // ready for days, in focus
+    issue(5, ['swarm/needs-human'], { body: 'Which one?' }),
+    issue(6, undefined, { body: 'Blocked by #5.' }),
+    issue(7, ['couchy-ux/approved'], { body: 'Blocked by #6.' }),
+    issue(8, ['swarm/needs-human']),
+  ];
+  const { overdue } = await sweep(fake({ issues, blockers: { 6: [5], 7: [6] }, blocking: { 8: [1] } }), { now: NOW, limits: LIMITS });
+  const lines = (section) => overdue.filter((o) => o.section === section).map((o) => o.line);
+  assert.deepEqual(lines('Waiting for an agent').map((l) => l.split(' ')[0]), ['#2'], '#1 is ready too, but outside focus');
+  assert.deepEqual(lines('Needs you'), [
+    '#5 Issue 5. Holds up #6 (in focus), and 1 more further down.',
+    '#8 Issue 8. Holds up #1.',
+  ]);
+});
+
 test('sweep: an agent with several heartbeat comments is listed once, by its newest', async () => {
   const comments = (...hours) => ({ 90: hours.map(([agent, h], i) => ({ id: i + 1, body: `<!-- agent-heartbeat: ${agent} -->`, updated_at: ago(h) })) });
   const desk = issue(90, ['swarm/desk']);

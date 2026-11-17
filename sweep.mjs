@@ -25,9 +25,9 @@ import { fromEnv } from './github.mjs';
 import { pushRun } from './metrics.mjs';
 import { planeFromEnv, tracker } from './plane.mjs';
 import {
-  AGENT_PREFIX, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
+  AGENT_PREFIX, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  partOfIssues, providers, refText, whyNotClaimable, FAILED,
+  blockGraph, downstream, focus, partOfIssues, providers, refText, whyNotClaimable, FAILED,
 } from './rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
@@ -148,9 +148,14 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     }
   }
 
-  // The queue: ready, unblocked, and nobody has taken it.
+  // The queue: ready, unblocked, in focus, and nobody has taken it. Agents
+  // start nothing outside focus, so ready work there is not overdue.
+  const focusedIssues = await gh.openIssues([FOCUS]);
+  const subs = new Map();
+  for (const f of focusedIssues) subs.set(f.number, await gh.subIssues(f.number));
+  const focused = focus(focusedIssues, subs);
   const ctx = { can: { has: () => true }, linked };
-  for (const issue of issues.filter((i) => !released.has(i.number) && !whyNotClaimable(i, ctx))) {
+  for (const issue of issues.filter((i) => !released.has(i.number) && focused.of(i) && !whyNotClaimable(i, ctx))) {
     // Since its last change: it became ready, or an agent let go of it, or
     // someone edited it. That can only make the wait look shorter, and costs
     // no request per item.
@@ -237,11 +242,14 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     }
   }
 
-  // Anything an agent handed to a person.
+  // Anything an agent handed to a person, with the work it holds up.
   const labelled = { needsHuman: [], hold: [] };
+  const blocks = blockGraph(issues);
   for (const item of [...issues, ...pulls].filter((i) => labelNames(i).includes(NEEDS_HUMAN))) {
     const since = lastLabeled(await gh.events(item.number), (n) => n === NEEDS_HUMAN) ?? item.created_at;
-    flag('Needs you', `human:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, agent: agentOf(item), since });
+    const inFocus = (n) => Boolean(focused.of(issues.find((i) => i.number === n) ?? { number: n }));
+    const held = typeOf(item) === 'issue' ? holdsUp(blocks, item, (await gh.blocking?.(item)) ?? [], inFocus) : '';
+    flag('Needs you', `human:${item.number}`, `${refText(item.number)} ${item.title}${held}`, { number: item.number, agent: agentOf(item), since });
     labelled.needsHuman.push({ number: item.number, type: typeOf(item), agent: agentOf(item) });
   }
   for (const pr of pulls.filter((p) => labelNames(p).includes(HOLD))) labelled.hold.push({ number: pr.number, agent: agentOf(pr) });
@@ -284,6 +292,19 @@ const LINKED = /<!-- swarm-linked: (.*?) -->/s;
  * a Plane work item, whose description drops HTML comments, the one desk
  * comment that carries the markers.
  */
+/**
+ * What a work item waiting on a person holds up, for its desk line: the items
+ * whose "Blocked by" line or Plane relation names it, those in focus marked,
+ * and a count of what waits further down. '' when nothing does.
+ */
+export function holdsUp(blocks, item, blocking, inFocus) {
+  const direct = [...new Set([...(blocks.get(item.number) ?? []), ...blocking])];
+  if (!direct.length) return '';
+  const further = downstream(blocks, item.number, blocking).size - direct.length;
+  const named = direct.map((n) => `${refText(n)}${inFocus(n) ? ' (in focus)' : ''}`).join(', ');
+  return `. Holds up ${named}${further > 0 ? `, and ${further} more further down` : ''}.`;
+}
+
 const deskState = (desk, stateComment) => [desk?.body ?? '', stateComment?.body ?? ''].join('\n');
 const isMarker = (line) => /^<!-- (agent-desk-state|swarm-[a-z]+): /.test(line);
 
