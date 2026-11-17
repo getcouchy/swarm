@@ -5,14 +5,15 @@
 import { appendFileSync } from 'node:fs';
 import { isKey } from './plane.mjs';
 import { HOLD, NEEDS_HUMAN } from './rules.mjs';
+import { SHAPE_COMMANDS, SHAPE_USAGE, ShapeUsage, shapeCommand } from './shape.mjs';
 import { claim, firstJob, heartbeat, mayContinue, nextAcross, release, releaseAll } from './tick.mjs';
 
-export const USAGE = 'Usage: agent.mjs next [--look] | more --started=<ISO time> [--wrote=<PR numbers>] | finish | claim <work item or PR> | release <work item or PR> [reason] | needs-human <work item or PR> "<question>" | hold <PR> "<what it waits for>"';
+export const USAGE = `Usage: agent.mjs next [--look] | more --started=<ISO time> [--wrote=<PR numbers>] | finish | claim <work item or PR> | release <work item or PR> [reason] | needs-human <work item or PR> "<question>" | hold <PR> "<what it waits for>" | ${SHAPE_USAGE}`;
 
 /** A command line agent.mjs can't run: it prints the message and exits 2. */
 export class UsageError extends Error {}
 
-const WORK = ['fix', 'hold', 'merge', 'review', 'implement'];
+const WORK = ['fix', 'hold', 'merge', 'review', 'implement', 'shape'];
 // A work item goes out under its sequence number with its key beside it, so a
 // line's repo, number and type still name one thing.
 // A title that isn't there costs the field, nothing more.
@@ -153,6 +154,21 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
     // Not handed off until the label is on: no line for the runner to count.
     if (!out.labelled) return { out, event: null };
     return done(out, () => read(client, number));
+  }
+  if (SHAPE_COMMANDS.includes(cmd)) {
+    const text = args.find((a) => !a.startsWith('--'));
+    if (!isKey(text)) throw new UsageError(`${cmd} needs a work item's key (COUCHYUX-12). ${USAGE}`);
+    const { client } = ref(text);
+    let out;
+    try {
+      out = await shapeCommand(cmd, args, { client, me });
+    } catch (e) {
+      if (e instanceof ShapeUsage) throw new UsageError(e.message);
+      throw e;
+    }
+    // Reading a work item is no event; changing one is.
+    if (cmd === 'show' || cmd === 'images') return { out, event: null };
+    return done(out, () => ({ ...item(client.repo, text, 'issue', client.seen?.(text)?.title), ...(cmd === 'shaped' ? { released: [item(client.repo, text, 'issue')] } : {}) }));
   }
   throw new UsageError(USAGE);
 }

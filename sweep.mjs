@@ -28,7 +28,7 @@ import { focusOf } from './tick.mjs';
 import {
   AGENT_PREFIX, BLOCKED, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  blockGraph, downstream, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED,
+  blockGraph, downstream, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED, SHAPED, shapeKind, whyNotShapeable,
 } from './rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
@@ -144,7 +144,8 @@ export async function sweep(gh, { now = Date.now(), limits }) {
       locks = locks.filter((l) => !(l.number === issue.number && l.agent === loser));
     }
     const holder = claimWinner(issue);
-    if (!isReady(issue)) {
+    // A shaping tick holds Backlog work by design.
+    if (!isReady(issue) && !shapeKind(issue)) {
       flag('Claims', `unapproved:${issue.number}`, `${refText(issue.number)} is held by ${holder} but is not ready (it is in ${issue.stage ?? 'no state'}).`, { number: issue.number, agent: holder });
     }
   }
@@ -259,6 +260,17 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   // Merged work waiting for the owner to walk its acceptance criteria.
   for (const item of (await gh.inQA?.()) ?? []) {
     flag('Waiting for your QA', `qa:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
+  }
+
+  // Work the owner asked a shaping tick for that none has taken, and shaped
+  // work waiting for the owner's review, until it leaves Backlog.
+  for (const item of issues.filter((i) => !whyNotShapeable(i))) {
+    const since = item.updated_at ?? item.created_at;
+    if (hoursSince(since, now) <= limits.ready) continue;
+    flag('Waiting for shaping', `shape:${item.number}`, `${refText(item.number)} ${item.title} (${shapeKind(item)})`, { number: item.number, since });
+  }
+  for (const item of issues.filter((i) => labelNames(i).includes(SHAPED) && i.stage === 'backlog' && !shapeKind(i))) {
+    flag('Shaped, waiting for you', `shaped:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
   }
 
   // Agents that stopped ticking.
