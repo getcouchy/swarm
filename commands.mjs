@@ -1,18 +1,21 @@
-// What each agent.mjs command does, given one github.mjs client per
+// What each agent.mjs command does, given one plane.mjs tracker() per
 // repository (tests pass fakes), and the line it adds to TICK_EVENTS_FILE.
 // agent.mjs reads the environment and the checkout, then runs one of these.
 
 import { appendFileSync } from 'node:fs';
+import { isKey } from './plane.mjs';
 import { HOLD, NEEDS_HUMAN } from './rules.mjs';
 import { claim, firstJob, heartbeat, mayContinue, nextAcross, release, releaseAll } from './tick.mjs';
 
-export const USAGE = 'Usage: agent.mjs next [--look] | more --started=<ISO time> [--wrote=<PR numbers>] | finish | claim <issue or PR> | release <issue or PR> [reason] | needs-human <issue or PR> "<question>" | hold <issue or PR> "<what it waits for>"';
+export const USAGE = 'Usage: agent.mjs next [--look] | more --started=<ISO time> [--wrote=<PR numbers>] | finish | claim <work item or PR> | release <work item or PR> [reason] | needs-human <work item or PR> "<question>" | hold <PR> "<what it waits for>"';
 
 /** A command line agent.mjs can't run: it prints the message and exits 2. */
 export class UsageError extends Error {}
 
 const WORK = ['fix', 'hold', 'merge', 'review', 'implement'];
-const item = (repo, number, type) => ({ repo, number, type });
+// A work item goes out under its sequence number with its key beside it, so a
+// line's repo, number and type still name one thing.
+const item = (repo, ref, type) => (isKey(ref) ? { repo, number: Number(ref.split('-').pop()), type: 'issue', key: ref } : { repo, number: ref, type });
 // A job's item is its lock, else its pull, else its issue; a pull when that number is the job's pull.
 const jobItem = (job) => {
   const number = job.lock ?? job.pull ?? job.issue;
@@ -24,7 +27,7 @@ const offered = (out) => ({
   ...(WORK.includes(out.job) ? jobItem(out) : {}),
   ...(out.job === 'none' ? { why: out.why, skipped: (out.repos ?? []).flatMap((r) => (r.skipped ?? []).map((s) => ({ repo: r.repo, ...s }))) } : {}),
 });
-const typeOf = async (client, number) => ((await client.issue(number)).pull_request ? 'pull' : 'issue');
+const typeOf = async (client, ref) => (isKey(ref) || !(await client.issue(ref)).pull_request ? 'issue' : 'pull');
 /** The fewest GitHub requests any of the clients has left, or null before any response. */
 const rateLimit = (clients) => {
   const left = clients.map((c) => c.rateLimitRemaining?.()).filter((n) => n != null);
@@ -41,11 +44,16 @@ const rateLimit = (clients) => {
  */
 export async function run(cmd, args, { clients, me, can, role, ceiling, minutes, entry, checkout = null }) {
   const gh = clients[0]; // the home repository: the Agent desk and its heartbeats live there
-  // "12" is in the home repository; "getcouchy/couchy-agent#12" names its own.
+  // "COUCHYUX-12" is a work item; "57" a pull request in the home repository,
+  // "getcouchy/couchy-agent#57" one in its own.
   const ref = (text) => {
+    if (isKey(text)) {
+      const project = text.split('-')[0];
+      return { client: clients.find((c) => c.plane?.project === project) ?? gh, number: text };
+    }
     const m = /^(?:([\w.-]+\/[\w.-]+)#)?(\d+)$/.exec(text ?? '');
     const client = m && clients.find((c) => c.repo === (m[1] ?? gh.repo));
-    if (!client) throw new UsageError(`${cmd} needs an issue number, or owner/name#number for one of: ${clients.map((c) => c.repo).join(', ')}.`);
+    if (!client) throw new UsageError(`${cmd} needs a work item's key (COUCHYUX-12), a PR number, or owner/name#number for one of: ${clients.map((c) => c.repo).join(', ')}.`);
     return { client, number: Number(m[2]) };
   };
   const done = (out, fields) => ({ out, event: async () => {
@@ -60,7 +68,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
     }
     return released;
   };
-  const named = (items) => items.map((i) => `${i.repo}#${i.number}`);
+  const named = (items) => items.map((i) => i.key ?? `${i.repo}#${i.number}`);
 
   if (cmd === 'next') {
     // A failed heartbeat must not cost the tick.
@@ -121,7 +129,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
     // (needs-human) with the latest comment as its text.
     const { client, number } = ref(args[0]);
     const text = args.slice(1).join(' ').trim();
-    if (!text) throw new UsageError(`Usage: agent.mjs ${cmd} <issue or PR> "<${cmd === 'hold' ? 'what it waits for' : 'question'}>"`);
+    if (!text) throw new UsageError(`Usage: agent.mjs ${cmd} <${cmd === 'hold' ? 'PR' : 'work item or PR'}> "<${cmd === 'hold' ? 'what it waits for' : 'question'}>"`);
     const label = cmd === 'hold' ? HOLD : NEEDS_HUMAN;
     const out = { repo: client.repo, issue: number, label, commented: false, labelled: false };
     try {

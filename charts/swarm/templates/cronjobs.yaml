@@ -64,6 +64,28 @@ spec:
                 - name: SWARM_PUSHGATEWAY_URL
                   value: {{ . | quote }}
                 {{- end }}
+                {{- with $.Values.plane.secretName }}
+                - name: PLANE_API_TOKEN
+                  valueFrom: { secretKeyRef: { name: {{ . }}, key: api-key } }
+                - name: PLANE_WORKSPACE
+                  valueFrom: { secretKeyRef: { name: {{ . }}, key: workspace-slug, optional: true } }
+                {{- if not $.Values.plane.baseUrl }}
+                - name: PLANE_BASE_URL
+                  valueFrom: { secretKeyRef: { name: {{ . }}, key: base-url, optional: true } }
+                {{- end }}
+                {{- end }}
+                {{- with $.Values.plane.baseUrl }}
+                - name: PLANE_BASE_URL
+                  value: {{ . | quote }}
+                {{- end }}
+                {{- with $.Values.plane.webUrl }}
+                - name: PLANE_WEB_URL
+                  value: {{ . | quote }}
+                {{- end }}
+                {{- with $.Values.plane.projects }}
+                - name: PLANE_PROJECTS
+                  value: {{ . | quote }}
+                {{- end }}
                 - name: SWARM_APP_ID
                   valueFrom: { secretKeyRef: { name: {{ $.Values.github.secretName }}, key: app-id } }
                 - name: SWARM_APP_KEY

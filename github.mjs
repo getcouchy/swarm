@@ -70,6 +70,8 @@ export function client({ token, repo, dryRun = false, log = console.error, fetch
     labels: () => all('/labels'),
     renameLabel: (name, to) => api('PATCH', `/labels/${enc(name)}`, { new_name: to }),
     openPulls: () => all('/pulls?state=open&sort=created&direction=asc'),
+    /** The 50 most recently updated closed pull requests, merged or not. */
+    closedPulls: () => api('GET', '/pulls?state=closed&sort=updated&direction=desc&per_page=50'),
     issue: (n) => api('GET', `/issues/${n}`),
     addLabel: (n, name) => api('POST', `/issues/${n}/labels`, { labels: [name] }),
     removeLabel: async (n, name) => {

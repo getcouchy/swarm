@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AGENT_PREFIX, isSwarmPull, providers } from './rules.mjs';
+import { AGENT_PREFIX, isSwarmPull, linkedTo, providers, refText } from './rules.mjs';
 
 const run = (cwd) => (...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
@@ -52,8 +52,8 @@ export function sync(git, { main = 'main', remote = 'origin' } = {}) {
 
 /**
  * What a checkout that was left alone most likely holds, so the agent finishes
- * it instead of pulling over it: the open PR for its branch, else an issue
- * this agent holds that has no PR yet. pulls, issues: as from github.mjs.
+ * it instead of pulling over it: the open PR for its branch, else a work item
+ * this agent holds that has no PR yet. pulls, issues: as from plane.mjs's tracker().
  */
 export function likelyWork({ branch, dirty }, { me, pulls = [], issues = [], linked = new Map() }) {
   const pr = pulls.find((p) => p.head?.ref === branch);
@@ -71,11 +71,11 @@ export function likelyWork({ branch, dirty }, { me, pulls = [], issues = [], lin
       advice: `This is the branch of open PR #${pr.number}, which ${whose}. Leave it exactly as it is: commit nothing, push nothing. Say so in your heartbeat and run this tick from a fresh worktree of origin/main (git worktree add).`,
     };
   }
-  const held = issues.filter((i) => providers(i).includes(me) && !linked.get(i.number)?.length);
+  const held = issues.filter((i) => providers(i).includes(me) && !linkedTo(linked, i).length);
   if (held.length) {
     return {
       issues: held.map((i) => i.number),
-      advice: `You hold ${held.map((i) => `#${i.number}`).join(', ')} with no PR yet, and this is probably that work. Read the diff; if it is, push it as a draft PR for the issue before anything else.`,
+      advice: `You hold ${held.map((i) => refText(i.number)).join(', ')} with no PR yet, and this is probably that work. Read the diff; if it is, push it as a draft PR for the work item before anything else.`,
     };
   }
   return {

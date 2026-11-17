@@ -1,12 +1,13 @@
 // The rules of the multi-provider agent protocol (see PROTOCOL.md), as pure
-// functions over GitHub's REST shapes, so agent.mjs (an agent's tick) and
-// sweep.mjs (the hourly check) decide the same way. No network here.
+// functions over the shapes the clients return: GitHub's REST shapes for pull
+// requests, and Plane work items shaped like issues (plane.mjs), so agent.mjs
+// (an agent's tick) and sweep.mjs (the regular check) decide the same way. No
+// network here.
 
-export const READY = 'couchy-ux/approved';
-// The issue the nightly simulator run keeps open while flows fail on main
-// (.github/workflows/ios-sim-nightly.yml): ready to take with no UX approval,
-// by an agent with a simulator (it carries swarm/needs/ios-sim).
-export const NIGHTLY = 'ios-sim/nightly';
+// A work item is ready to take in Plane's Todo or In Progress, the `unstarted`
+// and `started` state groups. In Progress with nobody on it and no PR open is
+// work an agent let go of; Backlog is not ready yet.
+export const READY_STAGES = ['unstarted', 'started'];
 export const STAGES = ['couchy-ux/needs-review', 'couchy-ux/needs-revision', 'couchy-ux/approved'];
 export const SQUAD = 'lifecycle/claude-squad';
 export const EPIC = 'kind/epic';
@@ -24,6 +25,15 @@ export const NEEDS_PREFIX = `${NS}needs/`;
 export const SWARM_PR = `${NS}pr`;
 export const HANDS_OFF = `${NS}hands-off`;
 export const REVIEW_ONLY = `${NS}review-only`;
+
+/** Whether a work item is in a state an agent may take it from. */
+export const isReady = (item) => READY_STAGES.includes(item.stage);
+
+/** How a line names an item: `COUCHYUX-12` for a work item, `#57` for a pull request. */
+export const refText = (ref) => (typeof ref === 'number' ? `#${ref}` : String(ref));
+
+/** Every reference that names an item: its own, and the GitHub issue a work item was copied from. */
+export const refsOf = (item) => [item.number, ...(item.aliases ?? [])];
 
 // The names these labels had before the namespace. They are still read
 // everywhere (labelNames turns them into today's), so an issue an agent
@@ -102,70 +112,72 @@ export const claimWinner = (item) => providers(item)[0] ?? null;
 
 export const isValidProvider = (p) => /^[a-z0-9][a-z0-9-]*$/.test(p ?? '');
 
-/** Issue numbers a PR body says it closes ("Closes #12", "fixes #3, resolves #4"). */
+// A work item's key (`COUCHYUX-12`) or a GitHub number (`#1680`), as a pull
+// request or a description writes it. Numbers are what PRs opened before the
+// work moved to Plane, and descriptions copied from GitHub, still say.
+const KEY_RE = String.raw`[A-Z][A-Z0-9]*-\d+`;
+const refsIn = (text) => [...(text ?? '').matchAll(new RegExp(String.raw`#(\d+)|\b(${KEY_RE})\b`, 'g'))].map((m) => (m[1] ? Number(m[1]) : m[2]));
+
+/** What a PR body says it closes ("Closes COUCHYUX-12", "fixes #3, resolves #4"): keys, and numbers for `#n`. */
 export function closingIssues(body) {
   const out = new Set();
-  const re = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+((?:#\d+(?:\s*(?:,|and)\s*)?)+)/gi;
-  for (const m of (body ?? '').matchAll(re)) {
-    for (const n of m[1].matchAll(/#(\d+)/g)) out.add(Number(n[1]));
-  }
+  const re = new RegExp(String.raw`\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b:?\s+((?:(?:#\d+|${KEY_RE})(?:\s*(?:,|and)\s*)?)+)`, 'gi');
+  for (const m of (body ?? '').matchAll(re)) for (const ref of refsIn(m[1])) out.add(ref);
   return [...out];
 }
 
 /**
- * The issues an issue's body says block it. Couchy's sub-issues name their
- * blockers in prose ("Blocked by: #640, #641", "Part of #901. Blocked by #902.
- * Blocks #906.", "Blocked by getcouchy/couchy-agent#5"), not in GitHub's
- * dependency links, so this is where the order of work is written down.
- * Returns [{ repo: 'owner/name' or null for this repo, number }].
+ * The items a description says block it, in prose ("Blocked by: COUCHYUX-40,
+ * #641", "Part of #901. Blocked by #902. Blocks #906.", "Blocked by
+ * getcouchy/couchy-agent#5"). Returns [{ key }] for work items and
+ * [{ repo: 'owner/name' or null for this repo, number }] for GitHub issues.
  */
 export function bodyBlockers(body) {
   const out = new Map();
   for (const m of (body ?? '').matchAll(/blocked by:?([^\n]*)/gi)) {
     // The sentence ends at a full stop or at "Blocks", which lists the other direction.
     const sentence = m[1].split(/\.(?:\s|$)|\bblocks\b/i)[0];
-    for (const ref of sentence.matchAll(/(?:([\w.-]+\/[\w.-]+))?#(\d+)/g)) {
-      out.set(`${ref[1] ?? ''}#${ref[2]}`, { repo: ref[1] ?? null, number: Number(ref[2]) });
+    for (const ref of sentence.matchAll(new RegExp(String.raw`(?:([\w.-]+\/[\w.-]+))?#(\d+)|\b(${KEY_RE})\b`, 'g'))) {
+      if (ref[3]) out.set(ref[3], { key: ref[3] });
+      else out.set(`${ref[1] ?? ''}#${ref[2]}`, { repo: ref[1] ?? null, number: Number(ref[2]) });
     }
   }
   return [...out.values()];
 }
 
-const mentions = (body) => [...(body ?? '').matchAll(/(?<![\w/-])#(\d+)/g)].map((m) => Number(m[1]));
+const mentions = (body) => [...(body ?? '').matchAll(new RegExp(String.raw`(?<![\w/-])#(\d+)|\b(${KEY_RE})\b`, 'g'))]
+  .map((m) => (m[1] ? Number(m[1]) : m[2]));
 
 /**
- * What the owner's `swarm/focus` label puts at the front of the queue. The label
- * goes on one issue, or on an epic or sequence issue. An issue is in focus
- * when it carries the label, when its body mentions a focused issue ("Part of
- * #1412", "Sequence: #1412 wave 2"), when a focused issue's body names it, or
- * when it is a sub-issue of a focused issue.
- * focusedIssues: the open issues labelled `swarm/focus`.
- * subIssues: focused issue number -> its sub-issues' numbers, in GitHub's order.
- * Returns { of(issue): the focused issue's number or null,
+ * What the owner put at the front of the queue: the current cycle (the
+ * sprint) and the `swarm/focus` label, on one item or on one that lists
+ * others. An item is in focus when it is in the sprint or carries the label,
+ * when its description mentions an item that is ("Part of COUCHYUX-12"),
+ * when a focused item's description names it, or when it is a child of a
+ * focused item.
+ * focusedIssues: the open items in the sprint or labelled `swarm/focus`.
+ * subIssues: focused item number -> its children's numbers, in order.
+ * Returns { of(issue): the focused item's number or null,
  *           order(issues): those in focus first, then the rest as they were }.
- * Issues that carry the label themselves come first: with the label on an
- * epic and on some of its children, those children are the owner's pick within
- * the epic. Then the rest in focus. Within each group, issues a focused issue
- * lists come in the order it lists them, since a sequence issue is written in
- * the order the work should happen; then its sub-issues the body leaves out,
- * in GitHub's order; the others follow in the order given.
+ * Focused items themselves come first, then the rest in focus. Within each
+ * group, items a focused item lists come in the order it lists them, since a
+ * sequence is written in the order the work should happen; then its children
+ * the description leaves out; the others follow in the order given.
  */
 export function focus(focusedIssues, subIssues = new Map()) {
-  const numbers = new Set(focusedIssues.map((i) => i.number));
-  const listed = new Map(); // issue number -> { by, at }: who lists it and how early
+  const owners = new Map(); // any reference to a focused item -> its number
+  for (const f of focusedIssues) for (const r of refsOf(f)) owners.set(r, f.number);
+  const listed = new Map(); // reference -> { by, at }: who lists it and how early
   for (const f of focusedIssues) {
     [...mentions(f.body), ...(subIssues.get(f.number) ?? [])].forEach((n, at) => {
-      if (!listed.has(n) && n !== f.number) listed.set(n, { by: f.number, at });
+      if (!listed.has(n) && !refsOf(f).includes(n)) listed.set(n, { by: f.number, at });
     });
   }
-  const of = (issue) => {
-    if (numbers.has(issue.number)) return issue.number;
-    if (listed.has(issue.number)) return listed.get(issue.number).by;
-    return mentions(issue.body).find((n) => numbers.has(n)) ?? null;
-  };
+  const hit = (issue, map) => refsOf(issue).map((r) => map.get(r)).find((v) => v != null);
+  const of = (issue) => hit(issue, owners) ?? hit(issue, listed)?.by ?? mentions(issue.body).map((n) => owners.get(n)).find((v) => v != null) ?? null;
   const order = (issues) => {
-    const at = (i) => listed.get(i.number)?.at ?? Infinity;
-    const tier = (i) => (numbers.has(i.number) ? 0 : 1);
+    const at = (i) => hit(i, listed)?.at ?? Infinity;
+    const tier = (i) => (hit(i, owners) != null ? 0 : 1);
     const inFocus = issues.filter((i) => of(i)).map((i, k) => ({ i, k }))
       .sort((a, b) => tier(a.i) - tier(b.i) || at(a.i) - at(b.i) || a.k - b.k).map((x) => x.i);
     return [...inFocus, ...issues.filter((i) => !of(i))];
@@ -173,15 +185,15 @@ export function focus(focusedIssues, subIssues = new Map()) {
   return { of, order };
 }
 
-/** Issue numbers a PR body says it is part of ("Part of #641", "part of #763 (part 2 of 3)"). */
+/** What a PR body says it is part of ("Part of COUCHYUX-12", "part of #763 (part 2 of 3)"). */
 export function partOfIssues(body) {
-  return [...(body ?? '').matchAll(/\bpart of #(\d+)/gi)].map((m) => Number(m[1]));
+  return [...(body ?? '').matchAll(new RegExp(String.raw`\bpart of (#\d+|${KEY_RE})`, 'gi'))].map((m) => refsIn(m[1])[0]).filter((r) => r != null);
 }
 
 /**
- * issue number -> open PRs for it: those whose body closes it, or says it is
- * part of it (a large issue lands as several "Part of #N" PRs). While one is
- * open the issue is in progress there, and is not offered as new work.
+ * reference -> open PRs for it: those whose body closes it, or says it is
+ * part of it (a large item lands as several "Part of" PRs). While one is open
+ * the item is in progress there, and is not offered as new work.
  */
 export function linkedPulls(pulls) {
   const map = new Map();
@@ -191,26 +203,31 @@ export function linkedPulls(pulls) {
   return map;
 }
 
+/** The open PRs for an item, under any reference to it. */
+export const linkedTo = (linked, issue) => [...new Set(refsOf(issue).flatMap((r) => linked?.get(r) ?? []))];
+
 const withPrefix = (item, prefix) => labelNames(item).filter((n) => n.startsWith(prefix));
 
 /**
- * Why `me` may not claim this issue, or null when it may.
+ * Why `me` may not claim this work item, or null when it may.
  * ctx: { can: Set of swarm/needs/* suffixes this agent's sandbox has,
  *        linked: Map from linkedPulls() }
- * Two agents may hold issues in the same `area/*` at once: the label says
- * what part of the product an issue is in, not that its work must queue. A
- * PR that falls behind main gets `conflicts-with-main` and its author fixes it.
+ * Two agents may hold items with the same `area/*` label at once: the label
+ * says what part of the product an item is in, not that its work must queue.
+ * A PR that falls behind main gets `conflicts-with-main` and its author fixes it.
  */
 export function whyNotClaimable(issue, ctx) {
   const names = labelNames(issue);
   if (issue.pull_request) return 'a pull request';
   if (issue.state && issue.state !== 'open') return 'closed';
-  if (!names.includes(READY) && !names.includes(NIGHTLY)) return `not ${READY}`;
+  if (names.includes(DESK)) return 'the Agent desk';
+  if (!isReady(issue)) return `not ready: in ${issue.stage ?? 'no'} state, not Todo or In Progress`;
   if (names.includes(EPIC)) return 'an epic';
   if (names.includes(NEEDS_HUMAN)) return `${NEEDS_HUMAN}`;
   if (names.includes(HANDS_OFF)) return `${HANDS_OFF}`;
   if (providers(issue).length) return `held by ${providers(issue).join(', ')}`;
-  if (ctx.linked?.get(issue.number)?.length) return `PR #${ctx.linked.get(issue.number)[0].number} is already open for it`;
+  const open = linkedTo(ctx.linked, issue);
+  if (open.length) return `PR #${open[0].number} is already open for it`;
   const missing = withPrefix(issue, NEEDS_PREFIX).map((n) => n.slice(NEEDS_PREFIX.length)).filter((n) => !ctx.can?.has(n));
   if (missing.length) return `needs ${missing.join(', ')}`;
   return null;

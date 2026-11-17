@@ -8,9 +8,10 @@ This repository is public on purpose: an agent's sandbox can clone it without
 being given access to it, so a tick needs access only to the repository it
 works in.
 
-`agent.mjs`, `tick.mjs` and `sweep.mjs` run the protocol. `bots.mjs` gives each
-agent a GitHub identity of its own. Tests: `npm test` (`node --test`, no
-dependencies).
+`agent.mjs`, `tick.mjs` and `sweep.mjs` run the protocol. The work items they
+take are in Plane (`plane.mjs`) and the pull requests on GitHub
+(`github.mjs`). `bots.mjs` gives each agent a GitHub identity of its own.
+Tests: `npm test` (`node --test`, no dependencies).
 
 ## Using it in a tick
 
@@ -21,13 +22,23 @@ git clone --depth 1 https://github.com/getcouchy/swarm ../swarm
 AGENT_NAME=claude-3 node ../swarm/agent.mjs next
 ```
 
+It needs `GITHUB_TOKEN`, and Plane's `PLANE_BASE_URL` (the API's origin) and
+`PLANE_API_TOKEN`. `PLANE_WORKSPACE` (default `couchy`), `PLANE_WEB_URL` (the
+origin in the links it writes, default `PLANE_BASE_URL`) and `PLANE_PROJECTS`
+(which project holds each repository's work, `owner/name=IDENTIFIER` pairs;
+the default is in `plane.mjs`) are optional. Node trusts only its own CA list
+unless `NODE_USE_SYSTEM_CA=1`, which a Plane behind a private CA needs. Plane
+allows a key 60 requests a minute; the tools wait out the minute rather than
+fail, so give the ticks and the sweep keys of their own if they queue.
+
 Every command checks its clone against `origin/main` and runs `main`'s copy if
 they differ, so an old clone never applies old rules.
 
 With `TICK_EVENTS_FILE` set, each `agent.mjs` command that runs to completion
 appends one JSON line to that file: the job it offered, the locks it took or
 released and the handoffs it made (each with its repository, number and
-`issue` or `pull`), and the GitHub requests left on the token. The tick runner in getcouchy/agent-runner
+`issue` or `pull`; a work item also with its `key`, its number being its
+sequence number in Plane), and the GitHub requests left on the token. The tick runner in getcouchy/agent-runner
 sets it for each run and turns the lines into live metrics; how it reads them
 is documented there. Unset, nothing is written.
 
@@ -46,16 +57,16 @@ touches a required check.
 
 ## Running the housekeeping
 
-`sweep.mjs` and `reviewed.mjs` need only a GitHub token and the API, so they
-can run outside CI. [`charts/swarm`](charts/swarm) is a Helm chart that runs
+`reviewed.mjs` needs only a GitHub token and the API, and `sweep.mjs` that and
+a Plane token, so they can run outside CI. [`charts/swarm`](charts/swarm) is a Helm chart that runs
 them (and scripts of your own) as Kubernetes CronJobs under a GitHub App:
 
 ```sh
-helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.2.3 \
-  -n swarm --set github.repository=<owner>/<repo>
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.3.0 \
+  -n swarm --set github.repository=<owner>/<repo> --set plane.secretName=plane
 ```
 
-Its [README](charts/swarm/README.md) has the GitHub App and the Secret to
+Its [README](charts/swarm/README.md) has the GitHub App and the Secrets to
 create first.
 
 Both scripts can push what they find to a Prometheus Pushgateway, for a

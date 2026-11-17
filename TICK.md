@@ -27,22 +27,23 @@ instructions to every scheduled tick, as if they were in your prompt.
    for your name.
 5. If the sandbox has the `COUCHY_BOT_*` variables, run
    `eval "$(node ../swarm/bots.mjs env)"` and `node ../swarm/bots.mjs git-setup`.
-   If a GitHub token is available, drive the tick from the `<repo>` checkout
-   with `GITHUB_REPOSITORY=<repo> AGENT_REPOS=<repo> AGENT_NAME=<name> node ../swarm/agent.mjs next`
+   The work items are in Plane (PROTOCOL.md, "Where the work is"); the
+   sandbox's `PLANE_BASE_URL`, `PLANE_API_TOKEN` and `PLANE_WORKSPACE` reach
+   it. With those and a GitHub token, drive the tick from the `<repo>`
+   checkout with `GITHUB_REPOSITORY=<repo> AGENT_REPOS=<repo> AGENT_NAME=<name> node ../swarm/agent.mjs next`
    / `more` / `finish`. Otherwise follow PROTOCOL.md, "By hand", with the
-   GitHub tools you have.
+   tools you have. Never use GitHub issues: not to find work, not to file it.
 
 ## The tick
 
 Your prompt says "run your tick" (a regular tick) or "run your focus tick" (a
 builder: PROTOCOL.md, "Builder ticks"). Work in `<repo>` only: it is your home
-repository, and your heartbeat goes on its open `swarm/desk` issue. You can't
-reach the other repositories, so an issue blocked by one of their issues
-counts as blocked; pass it by.
+repository, and your heartbeat goes on the open `swarm/desk` work item in its
+Plane project. Take only work items that belong to `<repo>`.
 
 A regular tick: fix `swarm/pr` PRs that need it, keep auto-merge right,
-review, carry on unfinished drafts, then start one new approved issue, taking
-the first step that applies and repeating until the tick ends.
+review, carry on unfinished drafts, then start one new work item from Todo,
+taking the first step that applies and repeating until the tick ends.
 
 **Standing permission:** turn on auto-merge (squash) for a `swarm/pr` PR whose
 latest review verdict is `ok`, or where `reviewed` is a required check, as
@@ -51,11 +52,11 @@ check.
 
 ## Ending it
 
-End the tick cleanly: everything committed and pushed; each issue you worked
-on has a PR whose body says what is done and what is left; your
-`swarm/agent/<name>` label is off everything; and your heartbeat comment on
-`<repo>`'s `swarm/desk` issue (ending with `<!-- agent-heartbeat: <name> -->`)
-says what you did this tick.
+End the tick cleanly: everything committed and pushed; each work item you
+worked on has a PR whose body says `Closes` or `Part of` its key and what is
+done and what is left; your `swarm/agent/<name>` label is off everything; and
+your heartbeat comment on the Agent desk work item (ending with
+`<!-- agent-heartbeat: <name> -->`) says what you did this tick.
 
 Nobody is watching the run, so don't stop to ask questions: decide what has a
 likely right answer and note it in the PR, and use `swarm/needs-human`
