@@ -86,6 +86,9 @@ The first of these that holds:
 | `hold` | Pull requests held from merging |
 | `merge` | Pull requests not set to merge |
 | `human` | Needs you |
+| `qa` | Waiting for your QA |
+| `shape` | Waiting for shaping |
+| `shaped` | Shaped, waiting for you |
 | `quiet` | Agents not ticking; `number` is empty and `agent` names the agent |
 
 ### The two counters

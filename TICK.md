@@ -17,7 +17,8 @@ instructions to every scheduled tick, as if they were in your prompt.
    once: `git clone --depth 1 https://github.com/<repo>` with a generous
    command timeout (about 10 minutes). Never run a second clone or fetch of
    it at the same time: the session allows two git transfers per repository,
-   and a third fails them all. Attach no other repository.
+   and a third fails them all. Attach no other repository (a shaping tick
+   also attaches getcouchy/couchy-design: "The tick").
 3. Clone this repository beside it, read-only:
    `git clone --depth 1 https://github.com/getcouchy/swarm ../swarm`
    (relative to your `<repo>` checkout). It is public: don't `add_repo` it.
@@ -36,8 +37,12 @@ instructions to every scheduled tick, as if they were in your prompt.
 
 ## The tick
 
-Your prompt says "run your tick" (a regular tick) or "run your focus tick" (a
-builder: PROTOCOL.md, "Builder ticks"). Work in `<repo>` only: it is your home
+Your prompt says "run your tick" (a regular tick), "run your focus tick" (a
+builder: PROTOCOL.md, "Builder ticks"; set `AGENT_ROLE=focus`) or "run your
+shaping tick" (PROTOCOL.md, "Shaping ticks"; set `AGENT_ROLE=shape`). A
+shaping tick that takes a `swarm/design` job also clones
+getcouchy/couchy-design beside `<repo>` (once, with the same care as step 2)
+and opens its design PR there; that is the one other repository it works in. Work in `<repo>` only: it is your home
 repository, and your heartbeat goes on the open `swarm/desk` work item in its
 Plane project. Take only work items that belong to `<repo>`.
 

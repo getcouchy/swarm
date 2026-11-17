@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_PROJECTS, htmlToText, isKey, mdToHtml, parseProjects, planeClient, tracker } from './plane.mjs';
-import { closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from './rules.mjs';
+import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from './rules.mjs';
 import { claim, focusOf } from './tick.mjs';
 import { followPulls, readLinked, writeDesk } from './sweep.mjs';
 import { run } from './commands.mjs';
@@ -337,4 +337,59 @@ test('events: a work item carries its title from what the tracker read, a PR its
   fake.items[0].labels = [];
   fake.items[0].state = 's-todo';
   assert.deepEqual(await line('next', []), { cmd: 'next', job: 'implement', ...twelve, claimed: [twelve] });
+});
+
+test('descriptions read as Markdown that writes back the same: headings, lists, tables, images, code', () => {
+  const html = '<h3>Scope</h3><ul><li><p>One <code>x</code></p></li><li><p>Two</p></li></ul><p>Blocked by COUCHYUX-3 &amp; #5.</p>'
+    + '<p><a href="https://github.com/o/r/blob/main/a.png"><img src="https://plane.home/uploads/a.png" alt="A" style="max-width: 100%;"></a></p>'
+    + '<table><thead><tr><th>Part</th><th>Spec</th></tr></thead><tbody><tr><td>Rail</td><td>44 <strong>high</strong> | wide</td></tr></tbody></table>'
+    + '<ol><li><p>first</p></li><li><p>second</p></li></ol><pre><code>a &lt; b</code></pre><hr><p>See <a href="https://x.dev/doc">the doc</a>.</p>';
+  const md = htmlToText(html);
+  assert.equal(md, [
+    '### Scope', '', '- One `x`', '- Two', '', 'Blocked by COUCHYUX-3 & #5.', '', '![A](https://plane.home/uploads/a.png)', '',
+    '| Part | Spec |', '| --- | --- |', '| Rail | 44 **high** \\| wide |', '', '1. first', '1. second', '', '```', 'a < b', '```', '', '---', '', 'See [the doc](https://x.dev/doc).',
+  ].join('\n'));
+  assert.equal(htmlToText(mdToHtml(md)), md);
+  assert.match(mdToHtml(md), /<img src="https:\/\/plane.home\/uploads\/a.png" alt="A">/);
+  assert.match(mdToHtml(md), /<td>44 <strong>high<\/strong> \| wide<\/td>/);
+  assert.deepEqual(bodyBlockers(md).map((b) => b.key ?? b.number), ['COUCHYUX-3', 5]);
+});
+
+test('shaping: a claimed Todo item being shaped stays in Todo; child items are made in Backlog under their parent; relations and attachments', async () => {
+  const fake = fakePlane({ items: [raw(1, { labels: ['lg'] }), raw(2)], labels: [{ id: 'lg', name: 'swarm/groom' }] });
+  const uploads = [];
+  const fetchImpl = async (url, opts = {}) => {
+    const path = new URL(url).pathname.replace('/api/v1/workspaces/couchy/', '');
+    const method = opts.method ?? 'GET';
+    const json = (status, body) => ({ ok: true, status, json: async () => body, text: async () => '', headers: { get: () => null } });
+    if (url.startsWith('https://plane.home/uploads')) {
+      uploads.push([...opts.body.keys()]);
+      return { ok: true, status: 204, text: async () => '' };
+    }
+    if (/attachments\/$/.test(path) && method === 'POST') {
+      fake.calls.push(`POST ${path} ${opts.body}`);
+      return json(200, { asset_id: 'a1', upload_data: { url: 'https://plane.home/uploads', fields: { key: 'w/a1-board.png', 'Content-Type': 'image/png' } } });
+    }
+    if (/attachments\/a1\/$/.test(path) || (/relations\/$/.test(path) && method === 'POST')) {
+      fake.calls.push(`${method} ${path} ${opts.body}`);
+      return { ok: true, status: 204, text: async () => '', headers: { get: () => null } };
+    }
+    return fake.fetchImpl(url, opts);
+  };
+  const plane = client(fake, { fetchImpl });
+  const t = tracker({ repo: 'getcouchy/couchy' }, plane);
+  assert.equal(await claim(t, 'COUCHYUX-1', 'claude-shape-1'), true);
+  assert.equal(fake.items[0].state, 's-todo', 'shaping is not building');
+
+  const child = await t.createIssue('Slice one', '### Scope\n\n- this', ['swarm/shaped'], { parent: 'COUCHYUX-1', priority: 'high' });
+  const made = fake.items.at(-1);
+  assert.deepEqual([made.state, made.parent, made.priority, made.description_html], ['s-backlog', 'i1', 'high', '<h3>Scope</h3><ul><li>this</li></ul>']);
+  await t.relate(child.key, 'blocked_by', ['COUCHYUX-2']);
+  assert.ok(fake.calls.includes(`POST projects/p1/work-items/${made.id}/relations/ {"relation_type":"blocked_by","issues":["i2"]}`));
+
+  const bytes = Buffer.from('png');
+  assert.deepEqual(await t.attach('COUCHYUX-1', { name: 'board.png', type: 'image/png', bytes }), { id: 'a1', name: 'board.png' });
+  assert.ok(fake.calls.includes('POST projects/p1/work-items/i1/attachments/ {"name":"board.png","type":"image/png","size":3}'));
+  assert.deepEqual(uploads, [['key', 'Content-Type', 'file']], 'the presigned fields, then the file');
+  assert.ok(fake.calls.includes('PATCH projects/p1/work-items/i1/attachments/a1/ {"is_uploaded":true}'));
 });

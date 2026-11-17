@@ -23,6 +23,10 @@
 //                                                hand it to a person: the comment, then swarm/needs-human
 //   node ../swarm/agent.mjs hold 57 "what it waits for"
 //                                                hold a PR's merge: the comment, then swarm/hold
+//   node ../swarm/agent.mjs show COUCHYUX-12      a work item as Markdown, with its comments and attachments
+//   node ../swarm/agent.mjs images COUCHYUX-12    download its description's images and its attachments to read
+// A shaping tick also has describe, create, blocked-by, labels, attach and
+// shaped (shape.mjs; PROTOCOL.md, "Shaping ticks").
 //
 // Work items are in Plane and pull requests on GitHub (plane.mjs, github.mjs).
 // A tick covers every repository in AGENT_REPOS (default: GITHUB_REPOSITORY and
@@ -32,7 +36,8 @@
 //
 // AGENT_NAME is this agent's name (codex, grok, claude-2…), which makes its
 // label swarm/agent/<name>; AGENT_CAN lists what its sandbox has, matching
-// swarm/needs/* labels ("ios-sim,design"); // AGENT_ROLE=focus runs a builder tick (PROTOCOL.md, "Builder ticks").
+// swarm/needs/* labels ("ios-sim,design"); AGENT_ROLE=focus runs a builder tick
+// (PROTOCOL.md, "Builder ticks"), AGENT_ROLE=shape a shaping tick ("Shaping ticks").
 // Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy), and
 // PLANE_BASE_URL and PLANE_API_TOKEN (plane.mjs has the rest).
 // TICK_EVENTS_FILE, when set, gets one JSON line per command that ran: the
@@ -55,8 +60,7 @@ if (!isValidProvider(me)) {
   process.exit(2);
 }
 const can = new Set((process.env.AGENT_CAN ?? '').split(',').map((s) => s.trim()).filter(Boolean));
-// AGENT_ROLE=focus makes this a builder tick: its own PRs and issues in focus, nothing else.
-const role = process.env.AGENT_ROLE === 'focus' ? 'focus' : 'all';
+const role = ['focus', 'shape'].includes(process.env.AGENT_ROLE) ? process.env.AGENT_ROLE : 'all';
 const ceiling = Number(process.env.AGENT_TICK_CEILING || 45);
 // How the agent ran this script, for the `then` commands it prints; a copy run
 // from origin/main is handed the original's path.

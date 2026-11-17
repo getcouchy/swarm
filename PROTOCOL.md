@@ -116,6 +116,9 @@ alike. Anything else on a work item or a PR (`area/*`, `couchy-ux/*`,
 | `swarm/pr` | a PR the agents opened: theirs to review, fix and merge | the agent that opens it |
 | `swarm/review-only` | a person's PR the agents review, and the `reviewed` check gates, but never fix, continue or merge | the PR's author or the owner |
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
+| `swarm/groom` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
+| `swarm/design` | groom it, and design it in getcouchy/couchy-design: spec and wireframes (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
+| `swarm/shaped` | a shaping tick has done what `swarm/groom` or `swarm/design` asked; the owner reviews it | a shaping tick, in place of the request |
 | `swarm/qa` | when its closing PR merges, the work item goes to QA, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
 | `swarm/blocked` | the work item has an open blocker, for views to filter on; ask for the blockers yourself before taking work | the sweep only |
 | `swarm/needs-human` | a real fork or a step only a person can take; pages the owner and holds the merge | an agent, after its comment |
@@ -216,7 +219,8 @@ the top and do the next, until the tick ends (see "When a tick ends"):
 5. **Start one new work item in focus** (see "Focus"): one in Todo (or In
    Progress with nobody on it and no PR open) that has no `swarm/agent/*`
    label, is not `kind/epic` or `swarm/needs-human`, has no open blockers, and
-   that you can take (see "What you may take"), taken in the order "Focus"
+   that you can take (see "What you may take") and that is not waiting for
+   shaping (`swarm/groom` or `swarm/design`), taken in the order "Focus"
    gives. Nothing outside focus is started. Lock it, then build it. A work item's blockers are the items Plane's
    "blocked by" relation names, and those its description names after
    "Blocked by" (`COUCHYUX-40`, or `#640` for the GitHub issue a work item was
@@ -467,6 +471,72 @@ the reviewing, and they review a PR that is in focus (it closes, or is part
 of, a work item in focus) before any other, so the builders' work merges without
 waiting behind the rest.
 
+## Shaping ticks
+
+A shaping tick makes work ready to build; it builds nothing. Its prompt says
+"run your **shaping tick** as `<name>`" (with the tool: `AGENT_ROLE=shape`).
+It has a name and label of its own (`swarm/agent/claude-shape-1`) and, like
+every tick, takes one job at a time until its time is spent: the work item
+it already holds, else the next one the owner labelled `swarm/groom` or
+`swarm/design` that is in Backlog or Todo, nobody holds, and is not
+`swarm/needs-human` or `swarm/hands-off`. Labelled work in focus comes
+first; then priority; then the item more open work waits on. It reviews,
+fixes and merges nothing, and never moves a work item's state: the owner
+moves shaped work to Todo, and that is the approval. While an item carries
+either label no tick builds it, even in Todo.
+
+Read the work item, its comments and its images first: `agent.mjs show
+<key>`, then `agent.mjs images <key>` and read each file it saves. On a
+second pass (the owner put the label back), the comments since your last
+`shaped` comment are what to change.
+
+**`swarm/groom`** asks for a work item an agent can build without asking
+anything. Rewrite its description with `agent.mjs describe <key> <file.md>`
+(the old one is kept in a comment), keeping what the owner wrote that still
+holds, in this shape:
+
+- the problem or goal in a paragraph, with the spec, design and parent it
+  belongs to (`Part of COUCHYUX-12`, a couchy-design spec by path);
+- `### Scope`: what to build, concretely enough to start on;
+- `### Not in this item`: what a reader might expect that belongs elsewhere;
+- `### Acceptance`: observable checks a reviewer can tick, citing any
+  `web-ergonomics` rules by number for web work;
+- `### Verify`: how to show it works (the test, the smoke flow, the
+  simulator flow);
+- `Blocked by COUCHYUX-…` when something must land first, also set as a
+  Plane relation (`agent.mjs blocked-by <key> <keys>`).
+
+Set the product labels it needs (`agent.mjs labels <key> +platform/web
++area/app -area/api`): an `area/*`, the platform, and `swarm/needs/<thing>`
+when it can't be checked without it. Work too big for one PR of a day or
+less becomes slices: create each with `agent.mjs create <key> <file.md>`
+(first line `# <title>`; `--labels`, `--blocked-by`, `--priority`). Slices are
+made in Backlog, as children of the item, already `swarm/shaped`. The item
+that holds them gets `kind/epic`. Don't create work outside the item you
+hold.
+
+**`swarm/design`** asks for the grooming and the design. Clone
+getcouchy/couchy-design beside your checkout, read its `README.md` and
+`AGENTS.md`, and open one PR there (`swarm/pr` is not for it: the owner
+reviews and merges design PRs) that adds `features/<slug>/spec.md` from
+`features/_template/` with `Status: Draft` and its wireframes,
+`wireframes/NN-<screen>.html`, at the sizes the README gives. Render each
+wireframe to PNG (`npx -y playwright screenshot --viewport-size "1440, 900"
+--full-page file://$PWD/<file>.html <file>.png`, or 390 × 844 for a phone
+frame) and attach the PNGs to the work item (`agent.mjs attach <key>
+<file.png>…`), so the owner can review in Plane. The groomed description
+points at the spec by path and at the PR. The spec's open questions go in
+the spec; a question the design can't proceed without is a
+`swarm/needs-human` on the work item, with the question, and the tick moves
+on.
+
+**Done:** `agent.mjs shaped <key> "<summary>"` comments the summary (what
+changed, the slices, the design PR, and anything the owner should decide),
+swaps `swarm/groom` or `swarm/design` for `swarm/shaped`, and takes your lock
+off. Shaping that isn't finished when the tick ends stays locked until
+`finish`, keeps its label, and the next shaping tick carries it on from the
+comments and the PR.
+
 ## What you may take
 
 - `swarm/needs/<thing>` on a work item means the work can't be checked without it:
@@ -494,7 +564,9 @@ work item in Plane current with whatever is overdue: a ready work item in focus
 no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
 labelled `swarm/needs-human` (with the work items it holds up, those in focus
-marked), work waiting in QA, an agent that stopped ticking.
+marked), work waiting in QA, work waiting for a shaping tick, shaped work in
+Backlog waiting for the owner, an agent that stopped ticking. A shaping
+tick's lock on a Backlog item is expected; any other tick's is listed.
 
 Another job there runs `reviewed.mjs` every 2 minutes and posts the `reviewed`
 status ("Merging") on every open PR's head. A PR whose newest head has no

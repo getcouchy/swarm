@@ -8,7 +8,7 @@ import { isKey } from './plane.mjs';
 import { likelyWork } from './preflight.mjs';
 import {
   AGENT_PREFIX, DESK, FOCUS, REVIEWED, blockGraph, closingIssues, downstream, partOfIssues, priorityRank, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
-  labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, providers, refsOf, whyNotClaimable,
+  labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, providers, refsOf, shapeKind, whyNotClaimable, whyNotShapeable,
 } from './rules.mjs';
 
 /**
@@ -24,8 +24,8 @@ export async function claim(gh, number, me) {
   if (gh.dryRun) return true;
   const after = await gh.issue(number);
   if (claimWinner(after) === me) {
-    // The board shows a claimed work item as In Progress.
-    if (isKey(number) && after.stage === 'unstarted') await gh.setStage(number, 'started');
+    // The board shows a claimed work item as In Progress; shaping it is not building it.
+    if (isKey(number) && after.stage === 'unstarted' && !shapeKind(after)) await gh.setStage(number, 'started');
     return true;
   }
   await gh.removeLabel(number, AGENT_PREFIX + me);
@@ -91,6 +91,7 @@ export async function releaseAll(gh, me) {
  * issue, PR and code whatever its name.
  */
 export async function next(gh, { me, can = new Set(), doClaim = true, wrote = new Set(), role = 'all' }) {
+  if (role === 'shape') return nextShape(gh, { me, doClaim });
   const builder = role === 'focus';
   const every = await gh.openPulls();
   // The swarm's PRs, and people's PRs marked `swarm/review-only`, which agents only review.
@@ -188,6 +189,35 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
   return { job: 'none', why: 'nothing in focus is claimable', skipped };
 }
 
+/**
+ * A shaping tick's job (PROTOCOL.md, "Shaping ticks"): the work item it holds
+ * already, else one the owner labelled `swarm/groom` or `swarm/design`, those
+ * in focus first, then by priority, then the one more work waits on. It
+ * builds nothing, reviews nothing, and never moves a work item's state.
+ */
+export async function nextShape(gh, { me, doClaim = true }) {
+  const open = (await gh.openIssues()).filter((i) => !handsOff(i));
+  const job = (issue, extra) => ({ job: 'shape', kind: shapeKind(issue), issue: issue.number, title: issue.title, ...url(issue), labels: labelNames(issue), lock: issue.number, ...extra });
+  const mine = open.find((i) => shapeKind(i) && providers(i).includes(me));
+  if (mine) return job(mine, { resumed: true, claimed: true });
+  const skipped = [];
+  const candidates = [];
+  for (const issue of open.filter(shapeKind)) {
+    const why = whyNotShapeable(issue);
+    if (why) skipped.push({ issue: issue.number, why });
+    else candidates.push(issue);
+  }
+  const focused = await focusOf(gh, open);
+  const inFocus = candidates.filter((i) => focused.of(i));
+  const rest = candidates.filter((i) => !focused.of(i));
+  for (const issue of [...await startOrder(gh, inFocus, open), ...await startOrder(gh, rest, open)]) {
+    const offer = job(issue, focused.of(issue) ? { focus: focused.of(issue) } : {});
+    if (!doClaim) return offer;
+    if (await claim(gh, issue.number, me)) return { ...offer, claimed: true };
+  }
+  return { job: 'none', why: 'nothing is waiting for shaping', skipped };
+}
+
 // A blocker as `blockers` names it ('#21', 'COUCHYUX-9'), as an item's reference.
 const blockerRef = (b) => (typeof b === 'string' && /^#\d+$/.test(b) ? Number(b.slice(1)) : b);
 
@@ -235,7 +265,7 @@ export async function startOrder(gh, candidates, open) {
   return ranked.sort((a, b) => a.priority - b.priority || b.unblocks - a.unblocks).map((r) => r.issue);
 }
 
-const ORDER = ['fix', 'hold', 'merge', 'review', 'implement'];
+const ORDER = ['fix', 'hold', 'merge', 'review', 'implement', 'shape'];
 const url = (item) => (item.html_url ? { url: item.html_url } : {});
 
 /**

@@ -11,7 +11,7 @@
 // state work waits in for the owner's QA, default QA). DRY_RUN=true logs
 // writes without making them.
 
-import { AGENT_PREFIX, BLOCKED, DESK, FOCUS, NEEDS_HUMAN, HOLD, HANDS_OFF, QA, bodyBlockers, labelNames, oldName } from './rules.mjs';
+import { AGENT_PREFIX, BLOCKED, DESIGN, DESK, FOCUS, GROOM, NEEDS_HUMAN, HOLD, HANDS_OFF, QA, SHAPED, bodyBlockers, labelNames, oldName } from './rules.mjs';
 
 const KEY = /^([A-Z][A-Z0-9]*)-(\d+)$/;
 /** Whether `ref` names a Plane work item (`COUCHYUX-12`) rather than a pull request number. */
@@ -36,14 +36,48 @@ export function parseProjects(text) {
 
 const ENTITIES = { nbsp: ' ', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", amp: '&' };
 
-/** A description's text, one line per block, for the rules that read issue bodies. */
+const decode = (s) => s.replace(/&(nbsp|lt|gt|quot|#39|apos|amp);/g, (_, e) => ENTITIES[e]);
+const attr = (tag, name) => new RegExp(`\\b${name}="([^"]*)"`, 'i').exec(tag)?.[1] ?? null;
+const untag = (html) => html.replace(/<[^>]+>/g, '');
+
+// Images, code, bold and links as Markdown; other tags are left for htmlToText.
+// A link around nothing but an image keeps the image.
+const inlineMd = (html) => html
+  .replace(/<a\b[^>]*>\s*(<img\b[^>]*>)\s*<\/a>/gi, '$1')
+  .replace(/<img\b[^>]*>/gi, (tag) => (attr(tag, 'src') ? `![${attr(tag, 'alt') || 'image'}](${attr(tag, 'src')})` : ''))
+  .replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, (_, c) => `\`${untag(c)}\``)
+  .replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, (_, t, c) => (c.trim() ? `**${c}**` : c))
+  .replace(/<a\b[^>]*href="(https?:[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_, href, text) => `[${untag(text)}](${href})`);
+
+function tableMd(inner) {
+  const rows = [...inner.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((r) => [...r[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+    .map((c) => untag(inlineMd(c[1])).replace(/\s+/g, ' ').replace(/\|/g, '\\|').trim()));
+  if (!rows.length) return '';
+  const line = (cells) => `| ${cells.join(' | ')} |`;
+  return `\n${[line(rows[0]), line(rows[0].map(() => '---')), ...rows.slice(1).map(line)].join('\n')}\n`;
+}
+
+/**
+ * A description as the little Markdown mdToHtml writes back: headings, `-` and
+ * `1.` lists, tables, fenced code, `code`, **bold**, links and images
+ * (`![alt](url)`), one block per paragraph. The rules read issue bodies from
+ * it, and an agent rewriting a description keeps what it doesn't change.
+ */
 export function htmlToText(html) {
-  return (html ?? '')
+  const md = inlineMd((html ?? '')
     .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (_, c) => `\n\`\`\`\n${untag(c).replace(/^\n+|\n+$/g, '')}\n\`\`\`\n`)
+    .replace(/<table\b[^>]*>([\s\S]*?)<\/table>/gi, (_, t) => tableMd(t))
+    .replace(/<ol\b[^>]*>([\s\S]*?)<\/ol>/gi, (_, l) => l.replace(/<li\b[^>]*>/gi, '\n1. '))
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    .replace(/<h([1-6])\b[^>]*>/gi, (_, n) => `\n${'#'.repeat(Number(n))} `)
+    .replace(/<hr\b[^>]*>/gi, '\n---\n'));
+  return decode(md
     .replace(/<\/?(br|p|div|li|h[1-6]|tr|pre|blockquote|ul|ol|table)\b[^>]*>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&(nbsp|lt|gt|quot|#39|apos|amp);/g, (_, e) => ENTITIES[e])
+    .replace(/<[^>]+>/g, ''))
+    .replace(/^((?:- |1\. |#{1,6} ))[ \t]*\n+[ \t]*/gm, '$1')
     .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{2,}(?=(?:- |1\. ))/g, (m, i, all) => (/(^|\n)(?:- |1\. )[^\n]*$/.test(all.slice(0, i)) ? '\n' : m))
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -52,50 +86,74 @@ const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, 
 const inline = (s) => esc(s)
   .replace(/`([^`]+)`/g, '<code>$1</code>')
   .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1">')
   .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>');
+const cells = (line) => line.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, '|'));
 
 /**
- * The little Markdown the tools write (paragraphs, `-` lists, `###` headings,
- * `code`, **bold**, links) as the HTML Plane stores. A line that is only an
- * HTML comment passes through untouched: the markers the tools read back
- * (`<!-- agent-heartbeat: codex -->`) live in those.
+ * Markdown as the HTML Plane stores: paragraphs, `-` and `1.` lists, `#`
+ * headings, tables, fenced code, `---`, `code`, **bold**, links and images. A
+ * line that is only an HTML comment passes through untouched: the markers the
+ * tools read back (`<!-- agent-heartbeat: codex -->`) live in those.
  */
 export function mdToHtml(md) {
   const out = [];
   let para = [];
-  let list = false;
+  let list = null;
+  let table = null;
+  let code = null;
   const flush = () => {
     if (para.length) out.push(`<p>${para.map(inline).join('<br>')}</p>`);
     para = [];
   };
   const close = () => {
-    if (list) out.push('</ul>');
-    list = false;
+    if (list) out.push(`</${list}>`);
+    list = null;
+    if (table) {
+      const [head, ...rows] = table;
+      out.push(`<table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+    }
+    table = null;
   };
   for (const line of (md ?? '').split('\n')) {
+    if (code) {
+      if (/^```/.test(line)) { out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`); code = null; } else code.push(line);
+      continue;
+    }
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
     const li = /^\s*-\s+(.*)$/.exec(line);
-    if (/^\s*<!--[\s\S]*-->\s*$/.test(line)) {
+    const oli = /^\s*\d+\.\s+(.*)$/.exec(line);
+    if (/^```/.test(line)) {
+      flush(); close(); code = [];
+    } else if (/^\s*<!--[\s\S]*-->\s*$/.test(line)) {
       flush(); close(); out.push(line.trim());
+    } else if (/^\s*\|.*\|\s*$/.test(line)) {
+      flush();
+      if (list) close();
+      if (/^\s*\|(\s*:?-{3,}:?\s*\|)+\s*$/.test(line)) continue;
+      (table ??= []).push(cells(line));
     } else if (h) {
       flush(); close(); out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`);
-    } else if (li) {
+    } else if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) {
+      flush(); close(); out.push('<hr>');
+    } else if (li || oli) {
       flush();
-      if (!list) out.push('<ul>');
-      list = true;
-      out.push(`<li>${inline(li[1])}</li>`);
+      const kind = li ? 'ul' : 'ol';
+      if (list !== kind) { close(); out.push(`<${kind}>`); list = kind; }
+      out.push(`<li>${inline((li ?? oli)[1])}</li>`);
     } else if (!line.trim()) {
       flush(); close();
     } else {
       close(); para.push(line);
     }
   }
+  if (code) out.push(`<pre><code>${esc(code.join('\n'))}</code></pre>`);
   flush(); close();
   return out.join('');
 }
 
 // Colours for the labels the tools create; anything else gets grey.
-const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#ededed'], [BLOCKED, '#e99695'], [QA, '#0e8a16']];
+const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#ededed'], [BLOCKED, '#e99695'], [QA, '#0e8a16'], [GROOM, '#c5def5'], [DESIGN, '#d4c5f9'], [SHAPED, '#0075ca']];
 const colorOf = (name) => COLORS.find(([p]) => name.startsWith(p))?.[1] ?? '#ededed';
 const GITHUB_REF = /^([\w.-]+\/[\w.-]+)#(\d+)$/;
 
@@ -431,14 +489,63 @@ export function planeClient({
       await api('POST', `${c.base}/work-items/${item.id}/links/`, { url, title });
       return true;
     },
-    createIssue: async (title, md, labels = []) => {
+    /** A new work item, always in Backlog; `parent` is a key. */
+    createIssue: async (title, md, labels = [], { parent = null, priority = null } = {}) => {
       const c = await context();
       const ids = [];
       for (const name of labels) ids.push(await labelId(name));
       const raw = await api('POST', `${c.base}/work-items/`, {
         name: title, description_html: mdToHtml(md), labels: ids.filter(Boolean), state: stateFor(c, 'backlog')?.id,
+        ...(parent ? { parent: (await known(parent)).id } : {}), ...(priority ? { priority } : {}),
       });
       return raw ? remember(shape(raw, c)) : null;
+    },
+    /** Add Plane relations of `kind` (`blocked_by`, `blocking`, `relates_to`) from one work item to others, by key. */
+    relate: async (key, kind, keys) => {
+      const c = await context();
+      const item = await known(key);
+      const ids = [];
+      for (const k of keys) ids.push((await known(k)).id);
+      await api('POST', `${c.base}/work-items/${item.id}/relations/`, { relation_type: kind, issues: ids });
+      related.delete(item.id);
+    },
+    /** A work item's uploaded attachments: [{ id, name, type, size }]. */
+    attachments: async (key) => {
+      const c = await context();
+      const item = await known(key);
+      const list = await api('GET', `${c.base}/work-items/${item.id}/attachments/`);
+      return (Array.isArray(list) ? list : list?.results ?? []).filter((a) => a.is_uploaded !== false)
+        .map((a) => ({ id: a.id, name: a.attributes?.name ?? a.name, type: a.attributes?.type ?? a.type, size: a.attributes?.size ?? a.size }));
+    },
+    /**
+     * Upload a file to a work item's attachments: Plane hands out a presigned
+     * POST to its storage, then is told the upload landed.
+     */
+    attach: async (key, { name, type, bytes }) => {
+      const c = await context();
+      const item = await known(key);
+      const made = await api('POST', `${c.base}/work-items/${item.id}/attachments/`, { name, type, size: bytes.length });
+      if (!made) return null; // dry run
+      const form = new FormData();
+      for (const [k, v] of Object.entries(made.upload_data.fields)) form.append(k, v);
+      form.append('file', new Blob([bytes], { type }), name);
+      const up = await fetchImpl(made.upload_data.url, { method: 'POST', body: form });
+      if (!up.ok) throw new Error(`upload of ${name}: ${up.status} ${await up.text()}`);
+      await api('PATCH', `${c.base}/work-items/${item.id}/attachments/${made.asset_id}/`, { is_uploaded: true });
+      return { id: made.asset_id, name };
+    },
+    /** Fetch a file a description or an attachment points at, with this client's key for Plane's own URLs. */
+    download: async (url) => {
+      const own = url.startsWith('/') || url.startsWith(origin) || url.startsWith(web);
+      const res = await fetchImpl(url.startsWith('/') ? `${origin}${url}` : url, { headers: own ? { 'X-API-Key': apiKey } : {}, redirect: 'follow' });
+      if (!res.ok) throw new Error(`GET ${url}: ${res.status}`);
+      return { type: res.headers?.get?.('content-type') ?? '', bytes: Buffer.from(await res.arrayBuffer()) };
+    },
+    /** Where an attachment downloads from (Plane redirects to a signed URL). */
+    attachmentUrl: async (key, id) => {
+      const c = await context();
+      const item = await known(key);
+      return `${origin}/api/v1/workspaces/${workspace}/${c.base}/work-items/${item.id}/attachments/${id}/`;
     },
     editIssue: async (key, { body, title }) => {
       const item = await known(key);
@@ -464,6 +571,11 @@ export function tracker(gh, plane) {
     inQA: plane.inQA,
     labelledItems: plane.labelledItems,
     createIssue: plane.createIssue,
+    relate: plane.relate,
+    attachments: plane.attachments,
+    attach: plane.attach,
+    download: plane.download,
+    attachmentUrl: plane.attachmentUrl,
     setStage: plane.setStage,
     addLink: plane.addLink,
     findIssue: plane.find,

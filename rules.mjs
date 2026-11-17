@@ -18,6 +18,11 @@ export const REVIEWED = 'reviewed';
 export const FOCUS = `${NS}focus`;
 export const QA = `${NS}qa`;
 export const BLOCKED = `${NS}blocked`;
+// The owner asks a shaping tick to make a work item buildable (groom) or to
+// design it as well (design); the tick swaps either for `swarm/shaped`.
+export const GROOM = `${NS}groom`;
+export const DESIGN = `${NS}design`;
+export const SHAPED = `${NS}shaped`;
 export const CONFLICT = 'conflicts-with-main';
 export const DESK = `${NS}desk`;
 export const AGENT_PREFIX = `${NS}agent/`;
@@ -237,6 +242,7 @@ export function whyNotClaimable(issue, ctx) {
   if (issue.state && issue.state !== 'open') return 'closed';
   if (names.includes(DESK)) return 'the Agent desk';
   if (!isReady(issue)) return `not ready: in ${issue.stage ?? 'no'} state, not Todo or In Progress`;
+  if (shapeKind(issue)) return `waiting for shaping (${SHAPE_LABEL[shapeKind(issue)]})`;
   if (names.includes(EPIC)) return 'an epic';
   if (names.includes(NEEDS_HUMAN)) return `${NEEDS_HUMAN}`;
   if (names.includes(HANDS_OFF)) return `${HANDS_OFF}`;
@@ -245,6 +251,31 @@ export function whyNotClaimable(issue, ctx) {
   if (open.length) return `PR #${open[0].number} is already open for it`;
   const missing = withPrefix(issue, NEEDS_PREFIX).map((n) => n.slice(NEEDS_PREFIX.length)).filter((n) => !ctx.can?.has(n));
   if (missing.length) return `needs ${missing.join(', ')}`;
+  return null;
+}
+
+const SHAPE_LABEL = { design: DESIGN, groom: GROOM };
+/** What shaping a work item asks for: 'design' (which grooms too), 'groom', or null. */
+export function shapeKind(item) {
+  const names = labelNames(item);
+  return names.includes(DESIGN) ? 'design' : names.includes(GROOM) ? 'groom' : null;
+}
+
+/**
+ * Why a shaping tick can't take this work item, or null when it can: one the
+ * owner labelled `swarm/groom` or `swarm/design`, in Backlog or Todo, that
+ * nobody holds and nothing hands to a person.
+ */
+export function whyNotShapeable(item) {
+  const names = labelNames(item);
+  if (item.pull_request) return 'a pull request';
+  if (!shapeKind(item)) return `not labelled ${GROOM} or ${DESIGN}`;
+  if (item.state && item.state !== 'open') return 'closed';
+  if (!['backlog', 'unstarted'].includes(item.stage)) return `in ${item.stage}: shaping is for Backlog and Todo`;
+  if (names.includes(DESK)) return 'the Agent desk';
+  if (names.includes(NEEDS_HUMAN)) return `${NEEDS_HUMAN}`;
+  if (names.includes(HANDS_OFF)) return `${HANDS_OFF}`;
+  if (providers(item).length) return `held by ${providers(item).join(', ')}`;
   return null;
 }
 
