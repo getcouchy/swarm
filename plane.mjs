@@ -11,7 +11,7 @@
 // state work waits in for the owner's QA, default QA). DRY_RUN=true logs
 // writes without making them.
 
-import { AGENT_PREFIX, DESK, FOCUS, NEEDS_HUMAN, HOLD, HANDS_OFF, bodyBlockers, labelNames, oldName } from './rules.mjs';
+import { AGENT_PREFIX, BLOCKED, DESK, FOCUS, NEEDS_HUMAN, HOLD, HANDS_OFF, QA, bodyBlockers, labelNames, oldName } from './rules.mjs';
 
 const KEY = /^([A-Z][A-Z0-9]*)-(\d+)$/;
 /** Whether `ref` names a Plane work item (`COUCHYUX-12`) rather than a pull request number. */
@@ -95,7 +95,7 @@ export function mdToHtml(md) {
 }
 
 // Colours for the labels the tools create; anything else gets grey.
-const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#ededed']];
+const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#ededed'], [BLOCKED, '#e99695'], [QA, '#0e8a16']];
 const colorOf = (name) => COLORS.find(([p]) => name.startsWith(p))?.[1] ?? '#ededed';
 const GITHUB_REF = /^([\w.-]+\/[\w.-]+)#(\d+)$/;
 
@@ -103,7 +103,7 @@ const GITHUB_REF = /^([\w.-]+\/[\w.-]+)#(\d+)$/;
  * A client for one repository's work items. `project` is the Plane project
  * identifier (COUCHYUX); `defaultRepo` the repository its items belong to
  * unless they say otherwise. Every list is read once per client: a command
- * runs in seconds, and Plane allows 60 requests a minute per key.
+ * runs in seconds, and Plane limits the requests a minute per key.
  */
 export function planeClient({
   baseUrl, webUrl = baseUrl, apiKey, workspace, project, repo, defaultRepo = repo, qaState = 'QA',
@@ -319,6 +319,8 @@ export function planeClient({
     issue: fresh,
     /** The work item as this client last had it, without asking Plane; null if it never did. */
     seen: (key) => last.get(key) ?? cache?.find((i) => i.key === key) ?? null,
+    /** This repository's work items carrying a label, in any state. */
+    labelledItems: async (name) => (await items()).filter((i) => i.repo === repo && labelNames(i).includes(name)),
     /** This repository's work items waiting in QA, longest first. */
     inQA: async () => (await items()).filter((i) => i.stage === 'qa' && i.repo === repo)
       .sort((a, b) => (a.updated_at ?? '').localeCompare(b.updated_at ?? '')),
@@ -460,6 +462,7 @@ export function tracker(gh, plane) {
     blockers: plane.blockers,
     blocking: plane.blocking,
     inQA: plane.inQA,
+    labelledItems: plane.labelledItems,
     createIssue: plane.createIssue,
     setStage: plane.setStage,
     addLink: plane.addLink,

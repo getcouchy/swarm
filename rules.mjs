@@ -19,6 +19,7 @@ export const HOLD = `${NS}hold`;
 export const REVIEWED = 'reviewed';
 export const FOCUS = `${NS}focus`;
 export const QA = `${NS}qa`;
+export const BLOCKED = `${NS}blocked`;
 export const CONFLICT = 'conflicts-with-main';
 export const DESK = `${NS}desk`;
 export const AGENT_PREFIX = `${NS}agent/`;

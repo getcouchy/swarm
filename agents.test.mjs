@@ -28,9 +28,9 @@ const pull = (number, labels, extra = {}) => ({
 });
 
 /** An in-memory GitHub: issues and pulls by number, with the calls the tools make. */
-function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = {}, events = {}, comments = {}, blockers = {}, blocking = {}, qa = [], pushed = {}, required = [], statuses = {}, repo = 'getcouchy/couchy', onAdd } = {}) {
+function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = {}, events = {}, comments = {}, blockers = {}, blocking = {}, qa = [], closed = [], pushed = {}, required = [], statuses = {}, repo = 'getcouchy/couchy', onAdd } = {}) {
   const log = [];
-  const find = (n) => [...issues, ...pulls].find((i) => i.number === n);
+  const find = (n) => [...issues, ...closed, ...pulls].find((i) => i.number === n);
   const has = (i, names) => names.every((n) => i.labels.some((l) => l.name === n));
   return {
     log,
@@ -63,6 +63,7 @@ function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = 
     blockers: async (i) => blockers[i.number] ?? [],
     blocking: async (i) => blocking[i.number] ?? [],
     inQA: async () => qa,
+    labelledItems: async (name) => [...issues, ...closed].filter((i) => i.labels.some((l) => l.name === name)),
     createIssue: async (title, body, labels) => { log.push(`create ${title}`); const i = issue(999, labels, { title, body }); issues.push(i); return i; },
     editIssue: async (n, patch) => { log.push(`edit ${n}`); Object.assign(find(n), patch); },
   };
@@ -339,6 +340,12 @@ test('sweep: only work in focus is waiting for an agent; Needs you says what eac
     '#5 Issue 5. Holds up #6 (in focus), and 1 more further down.',
     '#8 Issue 8. Holds up #1.',
   ]);
+  // swarm/blocked follows the blockers: on while one is open, off once none is or the item closes.
+  const tagged = [issue(30), issue(31, ['couchy-ux/approved', 'swarm/blocked']), issue(32, ['couchy-ux/approved', 'swarm/blocked'])];
+  const done = issue(33, ['area/app', 'swarm/blocked'], { state: 'closed', stage: 'completed' });
+  const gh = fake({ issues: tagged, closed: [done], blockers: { 30: ['#9'], 31: ['#9'] } });
+  await sweep(gh, { now: NOW, limits: LIMITS });
+  assert.deepEqual(gh.log.filter((l) => l.includes('swarm/blocked')), ['add 30 swarm/blocked', 'remove 32 swarm/blocked', 'remove 33 swarm/blocked']);
   // Merged work waiting for the owner's QA is on the desk too.
   const withQA = await sweep(fake({ qa: [issue(9, ['area/app'], { stage: 'qa', state: 'closed', updated_at: ago(3) })] }), { now: NOW, limits: LIMITS });
   assert.deepEqual(withQA.overdue.filter((o) => o.section === 'Waiting for your QA').map((o) => [o.line, o.since]), [['#9 Issue 9', ago(3)]]);

@@ -118,6 +118,7 @@ process or CI.
 | `swarm/review-only` | a person's PR the agents review, and the `reviewed` check gates, but never fix, continue or merge | the PR's author or the owner |
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
 | `swarm/qa` | when its closing PR merges, the work item goes to QA, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
+| `swarm/blocked` | the work item has an open blocker, for views to filter on; ask for the blockers yourself before taking work | the sweep only |
 | `swarm/needs-human` | a real fork or a step only a person can take; pages the owner and holds the merge | an agent, after its comment |
 | `swarm/hold` | holds a PR's merge for a wait an agent can end; pages nobody | an agent, with a comment |
 | `swarm/hands-off` | the owner is handling this work item or PR: no agent starts, fixes, continues, reviews or merges it | the owner only |
@@ -486,7 +487,8 @@ waiting behind the rest.
 
 A scheduled job runs `sweep.mjs` for a home repository. For getcouchy/couchy
 it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
-"Agent sweep"). It removes a lapsed claim and settles a doubled one, moves
+"Agent sweep"). It removes a lapsed claim and settles a doubled one, keeps
+`swarm/blocked` on the open work items that have an open blocker, moves
 work items with their pull requests (In Progress with a link while one is
 open, QA or Done once one that closes them merges), and it keeps the **Agent desk**
 work item in Plane current with whatever is overdue: a ready work item in focus

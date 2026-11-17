@@ -25,7 +25,7 @@ import { fromEnv } from './github.mjs';
 import { pushRun } from './metrics.mjs';
 import { planeFromEnv, tracker } from './plane.mjs';
 import {
-  AGENT_PREFIX, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
+  AGENT_PREFIX, BLOCKED, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
   blockGraph, downstream, focus, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED,
 } from './rules.mjs';
@@ -146,6 +146,19 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     if (!isReady(issue)) {
       flag('Claims', `unapproved:${issue.number}`, `${refText(issue.number)} is held by ${holder} but is not ready (it is in ${issue.stage ?? 'no state'}).`, { number: issue.number, agent: holder });
     }
+  }
+
+  // `swarm/blocked` on each open work item with an open blocker, for a view to
+  // filter on; it comes off once none is left, or the item closes. The sweep
+  // alone keeps it: agents still ask for blockers themselves.
+  for (const issue of issues) {
+    const blocked = (await gh.blockers(issue)).length > 0;
+    const has = labelNames(issue).includes(BLOCKED);
+    if (blocked && !has) await gh.addLabel(issue.number, BLOCKED);
+    if (!blocked && has) await gh.removeLabel(issue.number, BLOCKED);
+  }
+  for (const item of ((await gh.labelledItems?.(BLOCKED)) ?? []).filter((i) => i.state !== 'open')) {
+    await gh.removeLabel(item.number, BLOCKED);
   }
 
   // The queue: ready, unblocked, in focus, and nobody has taken it. Agents
