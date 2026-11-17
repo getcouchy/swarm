@@ -82,6 +82,14 @@ kubectl -n swarm create secret generic swarm-github-app \
   --from-literal=app-id=<APP_ID> --from-file=private-key=<app>.private-key.pem
 ```
 
+The sweep reads and moves the swarm's work items in Plane, so it also needs a
+Plane API token, in a Secret named by `plane.secretName`:
+
+```sh
+kubectl -n swarm create secret generic plane --from-file=api-key=<token file> \
+  --from-literal=base-url=https://plane.example --from-literal=workspace-slug=<slug>
+```
+
 `github.secretName` names a different Secret. Jobs that set `secretEnv` read
 from the Secret named in `extraSecretName`; a key missing from it leaves the
 variable unset.
@@ -89,8 +97,8 @@ variable unset.
 ## Install
 
 ```sh
-helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.2.3 \
-  -n swarm --set github.repository=<owner>/<repo>
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.3.0 \
+  -n swarm --set github.repository=<owner>/<repo> --set plane.secretName=plane
 # Try one before waiting for the schedule:
 kubectl -n swarm create job --from=cronjob/agent-reviewed reviewed-now
 kubectl -n swarm logs -f job/reviewed-now
@@ -106,7 +114,7 @@ To keep your values and your own templates in a chart of yours:
 # Chart.yaml
 dependencies:
   - name: swarm
-    version: 0.2.3
+    version: 0.3.0
     repository: oci://ghcr.io/getcouchy/charts
 ```
 
@@ -115,6 +123,8 @@ dependencies:
 swarm:
   github:
     repository: <owner>/<repo>
+  plane:
+    secretName: plane
 ```
 
 ## Releasing

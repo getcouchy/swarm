@@ -12,6 +12,21 @@ github:
   # "GitHub App").
   secretName: swarm-github-app
 
+plane:
+  # Secret holding the Plane API token (`api-key`), and optionally the API's
+  # origin (`base-url`) and the workspace slug (`workspace-slug`). Every job
+  # then gets PLANE_API_TOKEN, PLANE_BASE_URL and PLANE_WORKSPACE. The sweep
+  # needs them: the swarm's work items are in Plane. Empty gives no job any.
+  secretName: ""
+  # Values here win over the Secret's `base-url` key.
+  baseUrl: ""
+  # The origin people open Plane at, for the links the jobs write; the API's
+  # origin when empty.
+  webUrl: ""
+  # owner/name=IDENTIFIER pairs: which Plane project holds each repository's
+  # work. Empty keeps the scripts' default (plane.mjs, DEFAULT_PROJECTS).
+  projects: ""
+
 metrics:
   # A Prometheus Pushgateway (http://host:9091). When set, the sweep and
   # `reviewed` push their metrics there at the end of each run; docs/metrics.md

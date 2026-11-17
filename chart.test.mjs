@@ -63,6 +63,17 @@ test('secretEnv needs extraSecretName', { skip }, () => {
   assert.match(r.stderr, /extraSecretName/);
 });
 
+test('plane.secretName gives every job the Plane token, URL and workspace', { skip }, () => {
+  assert.doesNotMatch(render(repo).stdout, /PLANE_/);
+  let { stdout } = render(repo, 'plane.secretName=plane');
+  assert.match(stdout, /name: PLANE_API_TOKEN\s+valueFrom: \{ secretKeyRef: \{ name: plane, key: api-key \} \}/);
+  assert.match(stdout, /name: PLANE_BASE_URL\s+valueFrom: \{ secretKeyRef: \{ name: plane, key: base-url, optional: true \} \}/);
+  ({ stdout } = render(repo, 'plane.secretName=plane', 'plane.baseUrl=http://plane-api:8000', 'plane.webUrl=https://plane.home'));
+  assert.match(stdout, /name: PLANE_BASE_URL\s+value: "http:\/\/plane-api:8000"/);
+  assert.doesNotMatch(stdout, /key: base-url/);
+  assert.match(stdout, /name: PLANE_WEB_URL\s+value: "https:\/\/plane.home"/);
+});
+
 test('github.ref does not move the built-in jobs off main', { skip }, () => {
   const { stdout } = render(repo, 'github.ref=trunk');
   assert.match(stdout, /name: SOURCE_REF\s+value: "main"/);
