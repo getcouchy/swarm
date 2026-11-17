@@ -40,13 +40,20 @@ What a work item's state means here:
 | Backlog | not ready: being shaped, or waiting on the owner's approval |
 | Todo | ready for an agent to take |
 | In Progress | an agent has it, or a pull request for it is open; with neither, it is ready again |
-| Done | a pull request that closes it merged |
+| QA | a pull request that closes it merged, and the owner is walking its acceptance criteria; no agent takes it, and it blocks nothing |
+| Done | a pull request that closes it merged, and it needed no QA or passed it |
 | Cancelled | not doing it |
 
 The owner moves work from Backlog to Todo; that is the approval. The tools
 move it to In Progress when an agent claims it, and the sweep keeps it there
-while a pull request for it is open and moves it to Done when one that closes
-it merges. Don't move a work item to Done yourself.
+while a pull request for it is open. When one that closes it merges, the sweep
+moves it to QA if it changes what people see and use, and to Done if not:
+QA when it carries `swarm/qa`, `platform/web`, `platform/ios`, `area/app` or
+`web/ux-buildout`, or none of `area/api`, `area/tooling` and `area/ci`. Add
+`swarm/qa` to backend work whose result people will notice; nothing takes
+work out of QA but the owner, who moves it to Done when it passes, or back to
+Todo with a comment saying which criterion failed. Don't move a work item to
+QA or Done yourself.
 
 ## Your name
 
@@ -110,6 +117,8 @@ process or CI.
 | `swarm/pr` | a PR the agents opened: theirs to review, fix and merge | the agent that opens it |
 | `swarm/review-only` | a person's PR the agents review, and the `reviewed` check gates, but never fix, continue or merge | the PR's author or the owner |
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
+| `swarm/qa` | when its closing PR merges, the work item goes to QA, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
+| `swarm/blocked` | the work item has an open blocker, for views to filter on; ask for the blockers yourself before taking work | the sweep only |
 | `swarm/needs-human` | a real fork or a step only a person can take; pages the owner and holds the merge | an agent, after its comment |
 | `swarm/hold` | holds a PR's merge for a wait an agent can end; pages nobody | an agent, with a comment |
 | `swarm/hands-off` | the owner is handling this work item or PR: no agent starts, fixes, continues, reviews or merges it | the owner only |
@@ -199,21 +208,25 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    is `ok`, turn on auto-merge in the same tick, unless the PR is
    `swarm/review-only`: its author merges it. Take a PR that is in focus
    (see "Focus") before one that isn't.
-4. **Carry on unfinished work.** A draft `swarm/pr` PR that no other agent is
-   on, whoever opened it: lock it, read what it says is left, and continue on
-   its branch. Finishing comes before starting.
-5. **Start one new work item:** the first in Todo (or In Progress with nobody
-   on it and no PR open) that has no `swarm/agent/*` label, is not
-   `kind/epic` or `swarm/needs-human`, has no open blockers, and that you can
-   take (see "What you may take"). Work in focus comes first (see "Focus").
-   Lock it, then build it. A work item's blockers are the items Plane's
+4. **Carry on unfinished work in focus.** A draft `swarm/pr` PR for a work
+   item in focus (see "Focus") that no other agent is on, whoever opened it:
+   lock it, read what it says is left, and continue on its branch. Finishing
+   comes before starting. A draft for work outside focus waits until its work
+   item is in focus again; non-draft PRs outside focus are still fixed and
+   reviewed (steps 1 and 3), so written work lands.
+5. **Start one new work item in focus** (see "Focus"): one in Todo (or In
+   Progress with nobody on it and no PR open) that has no `swarm/agent/*`
+   label, is not `kind/epic` or `swarm/needs-human`, has no open blockers, and
+   that you can take (see "What you may take"), taken in the order "Focus"
+   gives. Nothing outside focus is started. Lock it, then build it. A work item's blockers are the items Plane's
    "blocked by" relation names, and those its description names after
    "Blocked by" (`COUCHYUX-40`, or `#640` for the GitHub issue a work item was
    copied from); it is blocked while any of them is open, or is in a project
    you can't read. A GitHub issue that no work item was copied from was
    closed before the work moved, and blocks nothing. Before any of those,
    take whatever your repository's `AGENTS.md` puts ahead of the queue.
-6. Otherwise there is nothing to do. Say so and stop.
+6. Otherwise there is nothing to do, even if work outside focus is ready.
+   Say so and stop.
 
 ### When a tick ends
 
@@ -417,14 +430,23 @@ The owner says what matters most in two ways: the project's **current cycle**
 one that lists others. A work item is in focus when it is in the sprint or
 carries the label, when its description mentions an open item that is ("Part
 of COUCHYUX-12"), when a focused item's description names it, or when it is a
-child of a focused item (Plane's parent link, up to three levels down). In
-step 5, take the first claimable work item that is in focus. Those in the
-sprint or carrying the label come first. Within each group, items a focused
-item lists come in the order it lists them, then its children the description
-leaves out, then the others, oldest first; only when none is claimable (all
-held, blocked, or needing what you lack) take the oldest of the rest. Focus
-changes nothing above step 5: PRs that need work, auto-merge and reviews still
-come first. Only the owner plans the sprint and adds or removes the label.
+child of a focused item (Plane's parent link, up to three levels down). A
+blocker a sprint item names is in focus by that rule, so a chain in the sprint
+is worked from its first open link.
+
+Step 5 starts only work in focus, in this order:
+
+1. **Priority**, as Plane has it: urgent, high, medium, low, then none.
+2. **What waits on it**: between equal priorities, the item more open work is
+   waiting on, counted down the whole chain: every item whose "Blocked by"
+   line or Plane "blocked by" relation names it, those that name them, and so
+   on.
+3. Equal on both: any of them.
+
+When nothing in focus can be claimed (all held, blocked, or needing what you
+lack), start nothing. Focus changes nothing in steps 1 to 3: PRs that need
+work, auto-merge and reviews still come first, in or out of focus. Only the
+owner plans the sprint, sets priorities, and adds or removes the label.
 
 ## Builder ticks
 
@@ -438,9 +460,10 @@ except the tick's steps, which for a builder are:
 2. **Turn auto-merge on for a PR in focus** where "Merging" says to.
 3. **Carry on unfinished work in focus** (step 4, for drafts in focus).
 4. **Start one new work item that is in focus** (step 5). If none can be taken,
-   stop: a builder takes nothing from the rest of the queue.
+   stop.
 
-A builder reviews nothing. The other ticks do
+What sets a builder apart is that it reviews nothing, and fixes and merges only
+PRs in focus. The other ticks do
 the reviewing, and they review a PR that is in focus (it closes, or is part
 of, a work item in focus) before any other, so the builders' work merges without
 waiting behind the rest.
@@ -464,13 +487,15 @@ waiting behind the rest.
 
 A scheduled job runs `sweep.mjs` for a home repository. For getcouchy/couchy
 it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
-"Agent sweep"). It removes a lapsed claim and settles a doubled one, moves
+"Agent sweep"). It removes a lapsed claim and settles a doubled one, keeps
+`swarm/blocked` on the open work items that have an open blocker, moves
 work items with their pull requests (In Progress with a link while one is
-open, Done once one that closes them merges), and it keeps the **Agent desk**
-work item in Plane current with whatever is overdue: a ready work item no
-agent has taken, a PR without a review, a failing PR its author left, a PR
+open, QA or Done once one that closes them merges), and it keeps the **Agent desk**
+work item in Plane current with whatever is overdue: a ready work item in focus
+no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
-labelled `swarm/needs-human`, an agent that stopped ticking.
+labelled `swarm/needs-human` (with the work items it holds up, those in focus
+marked), work waiting in QA, an agent that stopped ticking.
 
 Another job there runs `reviewed.mjs` every 2 minutes and posts the `reviewed`
 status ("Merging") on every open PR's head. A PR whose newest head has no

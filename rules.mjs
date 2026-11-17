@@ -18,6 +18,8 @@ export const NEEDS_HUMAN = `${NS}needs-human`;
 export const HOLD = `${NS}hold`;
 export const REVIEWED = 'reviewed';
 export const FOCUS = `${NS}focus`;
+export const QA = `${NS}qa`;
+export const BLOCKED = `${NS}blocked`;
 export const CONFLICT = 'conflicts-with-main';
 export const DESK = `${NS}desk`;
 export const AGENT_PREFIX = `${NS}agent/`;
@@ -156,33 +158,76 @@ const mentions = (body) => [...(body ?? '').matchAll(new RegExp(String.raw`(?<![
  * when a focused item's description names it, or when it is a child of a
  * focused item.
  * focusedIssues: the open items in the sprint or labelled `swarm/focus`.
- * subIssues: focused item number -> its children's numbers, in order.
- * Returns { of(issue): the focused item's number or null,
- *           order(issues): those in focus first, then the rest as they were }.
- * Focused items themselves come first, then the rest in focus. Within each
- * group, items a focused item lists come in the order it lists them, since a
- * sequence is written in the order the work should happen; then its children
- * the description leaves out; the others follow in the order given.
+ * subIssues: focused item number -> its children's numbers.
+ * Returns { of(issue): the focused item's number, or null when it is not in focus }.
  */
 export function focus(focusedIssues, subIssues = new Map()) {
   const owners = new Map(); // any reference to a focused item -> its number
   for (const f of focusedIssues) for (const r of refsOf(f)) owners.set(r, f.number);
-  const listed = new Map(); // reference -> { by, at }: who lists it and how early
+  const listed = new Map(); // reference -> the focused item that lists it
   for (const f of focusedIssues) {
-    [...mentions(f.body), ...(subIssues.get(f.number) ?? [])].forEach((n, at) => {
-      if (!listed.has(n) && !refsOf(f).includes(n)) listed.set(n, { by: f.number, at });
-    });
+    for (const n of [...mentions(f.body), ...(subIssues.get(f.number) ?? [])]) {
+      if (!listed.has(n) && !refsOf(f).includes(n)) listed.set(n, f.number);
+    }
   }
   const hit = (issue, map) => refsOf(issue).map((r) => map.get(r)).find((v) => v != null);
-  const of = (issue) => hit(issue, owners) ?? hit(issue, listed)?.by ?? mentions(issue.body).map((n) => owners.get(n)).find((v) => v != null) ?? null;
-  const order = (issues) => {
-    const at = (i) => hit(i, listed)?.at ?? Infinity;
-    const tier = (i) => (hit(i, owners) != null ? 0 : 1);
-    const inFocus = issues.filter((i) => of(i)).map((i, k) => ({ i, k }))
-      .sort((a, b) => tier(a.i) - tier(b.i) || at(a.i) - at(b.i) || a.k - b.k).map((x) => x.i);
-    return [...inFocus, ...issues.filter((i) => !of(i))];
-  };
-  return { of, order };
+  const of = (issue) => hit(issue, owners) ?? hit(issue, listed) ?? mentions(issue.body).map((n) => owners.get(n)).find((v) => v != null) ?? null;
+  return { of };
+}
+
+// Labels that say a work item changes what people see and use, and those that
+// say it doesn't. needsQA reads them.
+const UI_LABELS = ['platform/web', 'platform/ios', 'area/app', 'web/ux-buildout'];
+const BACKEND_LABELS = ['area/api', 'area/tooling', 'area/ci'];
+
+/**
+ * Whether a work item goes to QA, for the owner to walk its acceptance
+ * criteria, once the PR that closes it merges, rather than straight to Done:
+ * it carries `swarm/qa`, a label that says it touches what people use, or no
+ * label that says it is backend work only. An agent may add `swarm/qa`; nothing
+ * takes an item out of QA but the owner.
+ */
+export function needsQA(item) {
+  const names = labelNames(item);
+  return names.includes(QA) || names.some((n) => UI_LABELS.includes(n)) || !names.some((n) => BACKEND_LABELS.includes(n));
+}
+
+const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
+/** Plane's priority as a rank, urgent first; an item without one ranks with `none`. */
+export const priorityRank = (item) => PRIORITY_RANK[item.priority] ?? PRIORITY_RANK.none;
+
+/**
+ * Which open items each open item blocks, from the "Blocked by" lines of
+ * their descriptions: Map from an item's number to the Set of numbers waiting
+ * on it. Read from the bodies already in hand, so it costs no request; Plane's
+ * relations are added per item by the caller (`downstream`'s `extra`).
+ */
+export function blockGraph(issues) {
+  const byRef = new Map(issues.flatMap((i) => refsOf(i).map((r) => [r, i])));
+  const resolve = (b) => byRef.get(b.key ?? (b.repo ? `${b.repo}#${b.number}` : b.number));
+  const blocks = new Map();
+  for (const issue of issues) {
+    for (const ref of bodyBlockers(issue.body)) {
+      const blocker = resolve(ref);
+      if (!blocker || blocker.number === issue.number) continue;
+      if (!blocks.has(blocker.number)) blocks.set(blocker.number, new Set());
+      blocks.get(blocker.number).add(issue.number);
+    }
+  }
+  return blocks;
+}
+
+/** Every item waiting on `number`, directly or further down the chain, as a Set; `extra` adds direct ones. */
+export function downstream(blocks, number, extra = []) {
+  const seen = new Set();
+  const todo = [...(blocks.get(number) ?? []), ...extra];
+  while (todo.length) {
+    const n = todo.pop();
+    if (seen.has(n) || n === number) continue;
+    seen.add(n);
+    todo.push(...(blocks.get(n) ?? []));
+  }
+  return seen;
 }
 
 /** What a PR body says it is part of ("Part of COUCHYUX-12", "part of #763 (part 2 of 3)"). */

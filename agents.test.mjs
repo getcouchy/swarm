@@ -18,8 +18,9 @@ import { likelyWork, sync, toolsStale } from './preflight.mjs';
 const NOW = Date.parse('2026-11-10T12:00:00Z');
 const ago = (h) => new Date(NOW - h * 3_600_000).toISOString();
 const L = (...names) => names.map((name) => ({ name }));
-// A work item, shaped as plane.mjs shapes one; in Todo unless `stage` says otherwise.
-const issue = (number, labels = ['couchy-ux/approved'], extra = {}) =>
+// A work item, shaped as plane.mjs shapes one; in Todo unless `stage` says
+// otherwise, and in focus (agents start nothing else) unless `labels` says otherwise.
+const issue = (number, labels = ['couchy-ux/approved', 'swarm/focus'], extra = {}) =>
   ({ number, title: `Issue ${number}`, state: 'open', stage: 'unstarted', labels: L(...labels), created_at: ago(100), updated_at: ago(100), ...extra });
 const pull = (number, labels, extra = {}) => ({
   number, title: `PR ${number}`, labels: L(...labels), draft: false, body: '', head: { sha: `sha${number}` },
@@ -27,9 +28,9 @@ const pull = (number, labels, extra = {}) => ({
 });
 
 /** An in-memory GitHub: issues and pulls by number, with the calls the tools make. */
-function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = {}, events = {}, comments = {}, blockers = {}, pushed = {}, required = [], statuses = {}, repo = 'getcouchy/couchy', onAdd } = {}) {
+function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = {}, events = {}, comments = {}, blockers = {}, blocking = {}, qa = [], closed = [], pushed = {}, required = [], statuses = {}, repo = 'getcouchy/couchy', onAdd } = {}) {
   const log = [];
-  const find = (n) => [...issues, ...pulls].find((i) => i.number === n);
+  const find = (n) => [...issues, ...closed, ...pulls].find((i) => i.number === n);
   const has = (i, names) => names.every((n) => i.labels.some((l) => l.name === n));
   return {
     log,
@@ -60,6 +61,9 @@ function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = 
     checks: async (sha) => checks[sha] ?? [],
     commit: async (sha) => ({ commit: { committer: { date: pushed[sha] ?? ago(1) } } }),
     blockers: async (i) => blockers[i.number] ?? [],
+    blocking: async (i) => blocking[i.number] ?? [],
+    inQA: async () => qa,
+    labelledItems: async (name) => [...issues, ...closed].filter((i) => i.labels.some((l) => l.name === name)),
     createIssue: async (title, body, labels) => { log.push(`create ${title}`); const i = issue(999, labels, { title, body }); issues.push(i); return i; },
     editIssue: async (n, patch) => { log.push(`edit ${n}`); Object.assign(find(n), patch); },
   };
@@ -320,6 +324,33 @@ test('sweep: takes off locks that outlived a tick, settles doubled ones, reports
   assert.deepEqual([quiet.number, quiet.agent], [null, 'grok/1']);
 });
 
+test('sweep: only work in focus is waiting for an agent; Needs you says what each item holds up', async () => {
+  const issues = [
+    issue(1, ['couchy-ux/approved']), // ready for days, but outside focus
+    issue(2), // ready for days, in focus
+    issue(5, ['swarm/needs-human'], { body: 'Which one?' }),
+    issue(6, undefined, { body: 'Blocked by #5.' }),
+    issue(7, ['couchy-ux/approved'], { body: 'Blocked by #6.' }),
+    issue(8, ['swarm/needs-human']),
+  ];
+  const { overdue } = await sweep(fake({ issues, blockers: { 6: [5], 7: [6] }, blocking: { 8: [1] } }), { now: NOW, limits: LIMITS });
+  const lines = (section) => overdue.filter((o) => o.section === section).map((o) => o.line);
+  assert.deepEqual(lines('Waiting for an agent').map((l) => l.split(' ')[0]), ['#2'], '#1 is ready too, but outside focus');
+  assert.deepEqual(lines('Needs you'), [
+    '#5 Issue 5. Holds up #6 (in focus), and 1 more further down.',
+    '#8 Issue 8. Holds up #1.',
+  ]);
+  // swarm/blocked follows the blockers: on while one is open, off once none is or the item closes.
+  const tagged = [issue(30), issue(31, ['couchy-ux/approved', 'swarm/blocked']), issue(32, ['couchy-ux/approved', 'swarm/blocked'])];
+  const done = issue(33, ['area/app', 'swarm/blocked'], { state: 'closed', stage: 'completed' });
+  const gh = fake({ issues: tagged, closed: [done], blockers: { 30: ['#9'], 31: ['#9'] } });
+  await sweep(gh, { now: NOW, limits: LIMITS });
+  assert.deepEqual(gh.log.filter((l) => l.includes('swarm/blocked')), ['add 30 swarm/blocked', 'remove 32 swarm/blocked', 'remove 33 swarm/blocked']);
+  // Merged work waiting for the owner's QA is on the desk too.
+  const withQA = await sweep(fake({ qa: [issue(9, ['area/app'], { stage: 'qa', state: 'closed', updated_at: ago(3) })] }), { now: NOW, limits: LIMITS });
+  assert.deepEqual(withQA.overdue.filter((o) => o.section === 'Waiting for your QA').map((o) => [o.line, o.since]), [['#9 Issue 9', ago(3)]]);
+});
+
 test('sweep: an agent with several heartbeat comments is listed once, by its newest', async () => {
   const comments = (...hours) => ({ 90: hours.map(([agent, h], i) => ({ id: i + 1, body: `<!-- agent-heartbeat: ${agent} -->`, updated_at: ago(h) })) });
   const desk = issue(90, ['swarm/desk']);
@@ -553,7 +584,7 @@ test('reviewed status: with REVIEWED_CREATOR, another account\'s status does not
 
 test('with reviewed required, auto-merge goes on when the PR opens and stays on', async () => {
   const mine = pull(41, ['swarm/pr'], { body: 'Closes #1' });
-  const issues = [issue(1, ['couchy-ux/approved', 'swarm/agent/codex'])];
+  const issues = [issue(1, ['couchy-ux/approved', 'swarm/focus', 'swarm/agent/codex'])];
   let job = await next(fake({ issues, pulls: [mine], required: ['check', 'reviewed'] }), { me: 'codex', wrote: new Set([41]) });
   assert.deepEqual([job.job, job.pull], ['merge', 41], 'even the PR this session just wrote');
   job = await next(fake({ issues, pulls: [mine] }), { me: 'codex', wrote: new Set([41]) });
@@ -687,48 +718,71 @@ test('a checkout that was left alone is the job: nothing is claimed or offered',
   assert.deepEqual(fresh.log, ['add 3 swarm/agent/codex']);
 });
 
-test('focus: what the owner labelled goes to the front of the queue', async () => {
+test('focus: agents start only what is in focus, highest priority first, then what most work waits on', async () => {
   const seq = issue(1412, ['swarm/focus'], { body: 'Wave 1: 1. #1300 Remove in the open 2. #1223 size rows. Deferred: #1189.' });
   const f = focus([seq]);
   assert.equal(f.of(seq), 1412);
   assert.equal(f.of(issue(5, [], { body: 'Part of #1400. Sequence: #1412 wave 2, step 18.' })), 1412);
   assert.equal(f.of(issue(5, [], { body: 'Part of #1400. See getcouchy/couchy-agent#1412 and #14120.' })), null);
   assert.equal(f.of(issue(1223, [], { body: 'No mention of the sequence.' })), 1412, 'named by the focused issue');
-  // Listed issues in the order the focused issue lists them, then others in focus, then the rest.
-  const mixed = [issue(7), issue(1223), issue(1250, [], { body: 'Sequence: #1412' }), issue(1300)];
-  assert.deepEqual(f.order(mixed).map((i) => i.number), [1300, 1223, 1250, 7]);
-  // The label on the epic and on some children: those children first, in the epic's order, then its other children.
-  const kids = [issue(1223, ['swarm/focus']), issue(1300), issue(1189, ['swarm/focus']), issue(9, ['swarm/focus'])];
-  const both = focus([seq, kids[0], kids[2], kids[3]]);
-  assert.deepEqual(both.order([issue(7), ...kids]).map((i) => i.number), [1223, 1189, 9, 1300, 7]);
-
-  // Sub-issues the body does not name are in focus too, after the ones it lists, in GitHub's order.
-  const withSubs = focus([seq], new Map([[1412, [40, 1223, 30]]]));
-  assert.equal(withSubs.of(issue(30)), 1412);
-  assert.deepEqual(withSubs.order([issue(7), issue(30), issue(40), issue(1223), issue(1300)]).map((i) => i.number), [1300, 1223, 40, 30, 7]);
+  // Sub-issues the body does not name are in focus too.
+  assert.equal(focus([seq], new Map([[1412, [30]]])).of(issue(30)), 1412);
   const viaLink = await next(fake({ issues: [issue(3, ['couchy-ux/approved']), issue(1412, ['swarm/focus'], { stage: 'backlog' }), issue(30, ['couchy-ux/approved'])], subIssues: { 1412: [30] } }), { me: 'codex' });
   assert.deepEqual([viaLink.issue, viaLink.focus], [30, 1412]);
 
   const queue = () => [
-    issue(3), // older, not in focus
+    issue(3, ['couchy-ux/approved']), // older, not in focus
     issue(1412, ['swarm/focus', 'kind/epic']),
     issue(1402, ['couchy-ux/approved'], { body: 'Sequence: #1412 wave 2' }),
     issue(1403, ['couchy-ux/approved'], { body: 'Sequence: #1412 wave 3' }),
   ];
   let job = await next(fake({ issues: queue() }), { me: 'codex' });
   assert.deepEqual([job.issue, job.focus], [1402, 1412]);
-  // Focused work that can't be taken yet doesn't hold the rest of the queue up.
-  job = await next(fake({ issues: queue(), blockers: { 1402: ['#9'], 1403: ['#9'] } }), { me: 'codex' });
-  assert.deepEqual([job.issue, job.focus], [3, undefined]);
+  // With nothing in focus claimable the tick starts nothing, though #3 is free.
+  const gh = fake({ issues: queue(), blockers: { 1402: ['#9'], 1403: ['#9'] } });
+  job = await next(gh, { me: 'codex' });
+  assert.deepEqual([job.job, job.why], ['none', 'nothing in focus is claimable']);
+  assert.deepEqual(gh.log, []);
   // A review still comes before a focused issue.
   job = await next(fake({ issues: queue(), pulls: [pull(60, ['swarm/pr'])] }), { me: 'codex' });
   assert.equal(job.job, 'review');
-  // Across repositories, the focused issue wins over an unfocused one in the home repository.
-  const a = fake({ issues: [issue(3)] });
-  const b = fake({ repo: 'getcouchy/couchy-agent', issues: [issue(12, ['couchy-ux/approved', 'swarm/focus'])] });
+  // Across repositories, the focused issue wins; the home repository's unfocused one is not taken.
+  const a = fake({ issues: [issue(3, ['couchy-ux/approved'])] });
+  const b = fake({ repo: 'getcouchy/couchy-agent', issues: [issue(12)] });
   job = await nextAcross([a, b], { me: 'codex' });
   assert.deepEqual([job.repo, job.issue], ['getcouchy/couchy-agent', 12]);
   assert.deepEqual(a.log, []);
+
+  // Priority first: urgent before high before none, whatever the order they come in.
+  const ranked = (issues, extra = {}) => next(fake({ issues, ...extra }), { me: 'codex', doClaim: false });
+  job = await ranked([issue(10, undefined, { priority: 'none' }), issue(11, undefined, { priority: 'high' }), issue(12, undefined, { priority: 'urgent' })]);
+  assert.equal(job.issue, 12);
+  // Between equals, the one more work waits on, down the whole chain of "Blocked by" lines.
+  const chain = () => [
+    issue(20, undefined, { priority: 'high' }),
+    issue(21, undefined, { priority: 'high' }),
+    issue(22, ['couchy-ux/approved'], { body: 'Blocked by #21.' }), // not in focus itself: still waits on #21
+    issue(23, ['couchy-ux/approved'], { body: 'Blocked by COUCHYUX-9 and #22.' }),
+    issue(24, undefined, { priority: 'urgent', body: 'Blocked by #20.' }), // urgent, but waits on #20: not a candidate
+  ];
+  job = await ranked(chain(), { blockers: { 24: ['#20'] } });
+  assert.equal(job.issue, 21, '#21 holds up #22 and #23; #20 holds up only #24');
+  // Plane's blocking relations count too.
+  job = await ranked(chain(), { blockers: { 24: ['#20'] }, blocking: { 20: [30, 31, 32] } });
+  assert.equal(job.issue, 20);
+  // Equal on both: the order they came in.
+  job = await ranked([issue(41), issue(40)]);
+  assert.equal(job.issue, 41);
+
+  // A draft for work outside focus is not carried on; one in focus is.
+  const draft = (n) => pull(70, ['swarm/pr'], { draft: true, body: `Part of #${n}`, head: { sha: 'sha70', ref: `codex/${n}` } });
+  job = await next(fake({ issues: [issue(3, ['couchy-ux/approved'])], pulls: [draft(3)] }), { me: 'codex' });
+  assert.equal(job.job, 'none');
+  job = await next(fake({ issues: [issue(4)], pulls: [draft(4)] }), { me: 'codex' });
+  assert.deepEqual([job.job, job.pull, job.resumed], ['implement', 70, true]);
+  // A non-draft PR outside focus is still reviewed and fixed, so written work lands.
+  job = await next(fake({ issues: [issue(3, ['couchy-ux/approved'])], pulls: [pull(71, ['swarm/pr'], { body: 'Closes #3' })] }), { me: 'codex' });
+  assert.deepEqual([job.job, job.pull], ['review', 71]);
 });
 
 test('labels from before the swarm/ namespace are read as today\'s and moved across', async () => {
@@ -742,7 +796,7 @@ test('labels from before the swarm/ namespace are read as today\'s and moved acr
   assert.equal(oldName('area/app'), null);
 
   // An issue held under the old name is held: nobody else claims it, and its holder resumes it.
-  const old = () => [issue(1, ['couchy-ux/approved', 'agent/' + 'grok']), issue(2, ['couchy-ux/approved', 'needs/' + 'ios-sim'])];
+  const old = () => [issue(1, ['couchy-ux/approved', 'swarm/focus', 'agent/' + 'grok']), issue(2, ['couchy-ux/approved', 'swarm/focus', 'needs/' + 'ios-sim'])];
   assert.equal(await claim(fake({ issues: old() }), 1, 'codex'), false);
   assert.deepEqual([(await next(fake({ issues: old() }), { me: 'grok' })).issue, (await next(fake({ issues: old() }), { me: 'grok' })).resumed], [1, true]);
   assert.equal((await next(fake({ issues: old() }), { me: 'codex' })).job, 'none', 'the old needs/ label still gates');
@@ -787,7 +841,7 @@ test('a claim under both the old name and today\'s is one holder; stale tools ar
 
 test('a builder tick builds what is in focus and nothing else; other ticks review focus first', async () => {
   const seq = issue(1412, ['swarm/focus'], { body: 'Wave 1: #1223', stage: 'backlog' });
-  const issues = () => [issue(3), seq, issue(1223), issue(1224, ['couchy-ux/approved', 'swarm/agent/grok'], { body: 'Sequence: #1412' })];
+  const issues = () => [issue(3, ['couchy-ux/approved']), seq, issue(1223, ['couchy-ux/approved']), issue(1224, ['couchy-ux/approved', 'swarm/agent/grok'], { body: 'Sequence: #1412' })];
   const theirs = pull(60, ['swarm/pr'], { body: 'Closes #9', created_at: ago(5) });
   const theirsFocus = pull(61, ['swarm/pr'], { body: 'Closes #1224', created_at: ago(1) });
 
@@ -797,7 +851,7 @@ test('a builder tick builds what is in focus and nothing else; other ticks revie
   assert.deepEqual([job.job, job.issue, job.focus], ['implement', 1223, 1412]);
   assert.deepEqual(gh.log, ['add 1223 swarm/agent/codex-focus-1']);
   // With nothing in focus left to take it stops, though #3 is free.
-  job = await next(fake({ issues: [issue(3), seq], pulls: [theirs] }), { me: 'codex-focus-1', role: 'focus' });
+  job = await next(fake({ issues: [issue(3, ['couchy-ux/approved']), seq], pulls: [theirs] }), { me: 'codex-focus-1', role: 'focus' });
   assert.deepEqual([job.job, job.why], ['none', 'nothing in focus is claimable']);
   // A PR in focus that needs work comes first, whoever opened it; one outside focus is not a builder's.
   const mine = pull(62, ['swarm/pr'], { body: 'Closes #1223' });
@@ -870,14 +924,14 @@ test('TICK_EVENTS_FILE: next writes the job it offered, with its title, and what
   // A draft carried on is the PR's; my own lock on an issue with no PR is the issue's, held from now though taken before.
   ({ line } = await tickEvent([fake({ issues: [issue(1)], pulls: [pull(20, ['swarm/pr'], { draft: true, body: 'Closes #1' })] })], 'next'));
   assert.deepEqual([line.job, line.number, line.type, line.title, line.claimed], ['implement', 20, 'pull', 'PR 20', [twenty]]);
-  const held = fake({ issues: [issue(4, ['couchy-ux/approved', 'swarm/agent/codex'])] });
+  const held = fake({ issues: [issue(4, ['couchy-ux/approved', 'swarm/focus', 'swarm/agent/codex'])] });
   ({ line } = await tickEvent([held], 'next'));
   const four = { repo: home, number: 4, type: 'issue', title: 'Issue 4' };
   assert.deepEqual([line.job, line.number, line.type, line.title, line.claimed, held.log], ['implement', 4, 'issue', 'Issue 4', [four], []]);
 
   // Nothing to do: why, and what was passed by in each repository.
   let out;
-  ({ out, line } = await tickEvent([fake({ issues: [issue(4, ['couchy-ux/approved', 'swarm/needs/design'])] }), fake({ repo: agent })], 'next'));
+  ({ out, line } = await tickEvent([fake({ issues: [issue(4, ['couchy-ux/approved', 'swarm/focus', 'swarm/needs/design'])] }), fake({ repo: agent })], 'next'));
   assert.deepEqual(line, { v: 1, cmd: 'next', job: 'none', claimed: [], why: out.why, skipped: [{ repo: home, issue: 4, why: out.repos[0].skipped[0].why }], rateLimitRemaining: null });
   assert.match(line.skipped[0].why, /needs design/);
 });

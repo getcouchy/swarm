@@ -25,9 +25,9 @@ import { fromEnv } from './github.mjs';
 import { pushRun } from './metrics.mjs';
 import { planeFromEnv, tracker } from './plane.mjs';
 import {
-  AGENT_PREFIX, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
+  AGENT_PREFIX, BLOCKED, CONFLICT, DESK, FOCUS, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, SQUAD, STAGES, EPIC, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  partOfIssues, providers, refText, whyNotClaimable, FAILED,
+  blockGraph, downstream, focus, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED,
 } from './rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
@@ -148,9 +148,27 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     }
   }
 
-  // The queue: ready, unblocked, and nobody has taken it.
+  // `swarm/blocked` on each open work item with an open blocker, for a view to
+  // filter on; it comes off once none is left, or the item closes. The sweep
+  // alone keeps it: agents still ask for blockers themselves.
+  for (const issue of issues) {
+    const blocked = (await gh.blockers(issue)).length > 0;
+    const has = labelNames(issue).includes(BLOCKED);
+    if (blocked && !has) await gh.addLabel(issue.number, BLOCKED);
+    if (!blocked && has) await gh.removeLabel(issue.number, BLOCKED);
+  }
+  for (const item of ((await gh.labelledItems?.(BLOCKED)) ?? []).filter((i) => i.state !== 'open')) {
+    await gh.removeLabel(item.number, BLOCKED);
+  }
+
+  // The queue: ready, unblocked, in focus, and nobody has taken it. Agents
+  // start nothing outside focus, so ready work there is not overdue.
+  const focusedIssues = await gh.openIssues([FOCUS]);
+  const subs = new Map();
+  for (const f of focusedIssues) subs.set(f.number, await gh.subIssues(f.number));
+  const focused = focus(focusedIssues, subs);
   const ctx = { can: { has: () => true }, linked };
-  for (const issue of issues.filter((i) => !released.has(i.number) && !whyNotClaimable(i, ctx))) {
+  for (const issue of issues.filter((i) => !released.has(i.number) && focused.of(i) && !whyNotClaimable(i, ctx))) {
     // Since its last change: it became ready, or an agent let go of it, or
     // someone edited it. That can only make the wait look shorter, and costs
     // no request per item.
@@ -237,14 +255,22 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     }
   }
 
-  // Anything an agent handed to a person.
+  // Anything an agent handed to a person, with the work it holds up.
   const labelled = { needsHuman: [], hold: [] };
+  const blocks = blockGraph(issues);
   for (const item of [...issues, ...pulls].filter((i) => labelNames(i).includes(NEEDS_HUMAN))) {
     const since = lastLabeled(await gh.events(item.number), (n) => n === NEEDS_HUMAN) ?? item.created_at;
-    flag('Needs you', `human:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, agent: agentOf(item), since });
+    const inFocus = (n) => Boolean(focused.of(issues.find((i) => i.number === n) ?? { number: n }));
+    const held = typeOf(item) === 'issue' ? holdsUp(blocks, item, (await gh.blocking?.(item)) ?? [], inFocus) : '';
+    flag('Needs you', `human:${item.number}`, `${refText(item.number)} ${item.title}${held}`, { number: item.number, agent: agentOf(item), since });
     labelled.needsHuman.push({ number: item.number, type: typeOf(item), agent: agentOf(item) });
   }
   for (const pr of pulls.filter((p) => labelNames(p).includes(HOLD))) labelled.hold.push({ number: pr.number, agent: agentOf(pr) });
+
+  // Merged work waiting for the owner to walk its acceptance criteria.
+  for (const item of (await gh.inQA?.()) ?? []) {
+    flag('Waiting for your QA', `qa:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
+  }
 
   // Agents that stopped ticking.
   const desk = issues.find((i) => labelNames(i).includes(DESK)) ?? null;
@@ -284,6 +310,19 @@ const LINKED = /<!-- swarm-linked: (.*?) -->/s;
  * a Plane work item, whose description drops HTML comments, the one desk
  * comment that carries the markers.
  */
+/**
+ * What a work item waiting on a person holds up, for its desk line: the items
+ * whose "Blocked by" line or Plane relation names it, those in focus marked,
+ * and a count of what waits further down. '' when nothing does.
+ */
+export function holdsUp(blocks, item, blocking, inFocus) {
+  const direct = [...new Set([...(blocks.get(item.number) ?? []), ...blocking])];
+  if (!direct.length) return '';
+  const further = downstream(blocks, item.number, blocking).size - direct.length;
+  const named = direct.map((n) => `${refText(n)}${inFocus(n) ? ' (in focus)' : ''}`).join(', ');
+  return `. Holds up ${named}${further > 0 ? `, and ${further} more further down` : ''}.`;
+}
+
 const deskState = (desk, stateComment) => [desk?.body ?? '', stateComment?.body ?? ''].join('\n');
 const isMarker = (line) => /^<!-- (agent-desk-state|swarm-[a-z]+): /.test(line);
 
@@ -301,8 +340,11 @@ export function readLinked(body) {
  * Work items follow their pull requests. A PR that closes an item, or is part
  * of it, moves it from Backlog or Todo to In Progress and puts a link to
  * itself on it; one that closes it and merged in the last two days moves it
- * to Done. A PR may name an item by its key or by the GitHub issue it was
- * copied from. Returns the lines to log and the pairs linked so far.
+ * to QA when it needs the owner's QA (rules.mjs, needsQA), else to Done. Each
+ * merge moves its item once (an `item>pr` pair beside the `item<pr` links), so
+ * an item the owner sends back to Todo stays there. A PR may name an item by
+ * its key or by the GitHub issue it was copied from. Returns the lines to log
+ * and the pairs recorded so far.
  */
 export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) {
   if (!gh.findIssue) return { lines: [], linked: [] };
@@ -329,10 +371,12 @@ export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) 
     if (!pr.merged_at || hoursSince(pr.merged_at, now) > 48) continue;
     for (const ref of closingIssues(pr.body)) {
       const item = await gh.findIssue(ref);
-      if (!item || item.state !== 'open') continue;
-      await gh.setStage(item.number, 'completed');
+      const moved = item && `${item.number}>${pr.number}`;
+      if (!item || item.state !== 'open' || seen.has(moved)) continue;
+      const stage = await gh.setStage(item.number, needsQA(item) ? 'qa' : 'completed');
       await link(item, pr);
-      lines.push(`${item.number} is Done: PR #${pr.number} merged.`);
+      seen.add(moved);
+      lines.push(`${item.number} is ${stage === 'qa' ? 'in QA' : 'Done'}: PR #${pr.number} merged.`);
     }
   }
   return { lines, linked: [...seen].slice(-1000) };

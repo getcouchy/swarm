@@ -7,10 +7,11 @@
 //
 // Env: PLANE_BASE_URL (the API's origin), PLANE_API_TOKEN, PLANE_WORKSPACE
 // (slug, default couchy), PLANE_WEB_URL (the origin people open, default
-// PLANE_BASE_URL), PLANE_PROJECTS (see DEFAULT_PROJECTS). DRY_RUN=true logs
+// PLANE_BASE_URL), PLANE_PROJECTS (see DEFAULT_PROJECTS), PLANE_QA_STATE (the
+// state work waits in for the owner's QA, default QA). DRY_RUN=true logs
 // writes without making them.
 
-import { AGENT_PREFIX, DESK, FOCUS, NEEDS_HUMAN, HOLD, HANDS_OFF, bodyBlockers, labelNames, oldName } from './rules.mjs';
+import { AGENT_PREFIX, BLOCKED, DESK, FOCUS, NEEDS_HUMAN, HOLD, HANDS_OFF, QA, bodyBlockers, labelNames, oldName } from './rules.mjs';
 
 const KEY = /^([A-Z][A-Z0-9]*)-(\d+)$/;
 /** Whether `ref` names a Plane work item (`COUCHYUX-12`) rather than a pull request number. */
@@ -94,7 +95,7 @@ export function mdToHtml(md) {
 }
 
 // Colours for the labels the tools create; anything else gets grey.
-const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#ededed']];
+const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#ededed'], [BLOCKED, '#e99695'], [QA, '#0e8a16']];
 const colorOf = (name) => COLORS.find(([p]) => name.startsWith(p))?.[1] ?? '#ededed';
 const GITHUB_REF = /^([\w.-]+\/[\w.-]+)#(\d+)$/;
 
@@ -102,10 +103,10 @@ const GITHUB_REF = /^([\w.-]+\/[\w.-]+)#(\d+)$/;
  * A client for one repository's work items. `project` is the Plane project
  * identifier (COUCHYUX); `defaultRepo` the repository its items belong to
  * unless they say otherwise. Every list is read once per client: a command
- * runs in seconds, and Plane allows 60 requests a minute per key.
+ * runs in seconds, and Plane limits the requests a minute per key.
  */
 export function planeClient({
-  baseUrl, webUrl = baseUrl, apiKey, workspace, project, repo, defaultRepo = repo,
+  baseUrl, webUrl = baseUrl, apiKey, workspace, project, repo, defaultRepo = repo, qaState = 'QA',
   dryRun = false, log = console.error, fetchImpl = fetch,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now(),
 }) {
@@ -169,6 +170,7 @@ export function planeClient({
       base,
       states,
       groupOf: new Map(states.map((s) => [s.id, s.group])),
+      nameOf: new Map(states.map((s) => [s.id, s.name])),
       byId: new Map(labels.map((l) => [l.id, l])),
       byName: new Map(labels.map((l) => [l.name, l])),
     };
@@ -185,7 +187,10 @@ export function planeClient({
   const shape = (raw, c) => {
     const labelIds = (raw.labels ?? []).map((l) => (typeof l === 'string' ? l : l.id));
     const names = labelIds.map((id) => c.byId.get(id)?.name).filter(Boolean);
-    const stage = c.groupOf.get(typeof raw.state === 'string' ? raw.state : raw.state?.id) ?? 'backlog';
+    // An item in the QA state is in its own stage, `qa`, whatever group the
+    // state is in: its PR has merged, so no agent takes it, and it blocks nothing.
+    const stateId = typeof raw.state === 'string' ? raw.state : raw.state?.id;
+    const stage = c.nameOf.get(stateId) === qaState ? 'qa' : c.groupOf.get(stateId) ?? 'backlog';
     const key = `${project}-${raw.sequence_id}`;
     const itemRepo = repoOf(raw, names);
     const copied = raw.external_source === 'github' ? GITHUB_REF.exec(raw.external_id ?? '') : null;
@@ -199,7 +204,8 @@ export function planeClient({
       labels: names.map((name) => ({ name })),
       labelIds,
       stage,
-      state: stage === 'completed' || stage === 'cancelled' ? 'closed' : 'open',
+      priority: raw.priority ?? 'none',
+      state: ['completed', 'cancelled', 'qa'].includes(stage) ? 'closed' : 'open',
       repo: itemRepo,
       // What a pull request or an issue body copied from GitHub may still call it: `#1680` in its own repository.
       aliases: copied ? [copied[0], ...(copied[1] === itemRepo ? [Number(copied[2])] : [])] : [],
@@ -224,6 +230,13 @@ export function planeClient({
   /** The item as Plane has it now, never from the cache: claims are decided on it. */
   const fresh = async (key) => remember(shape(await api('GET', `work-items/${key}/`), await context()));
   const known = async (key) => (await items()).find((i) => i.key === key) ?? fresh(key);
+
+  const related = new Map(); // work item id -> its relations, asked once per client
+  const relations = (item) => {
+    if (!related.has(item.id)) related.set(item.id, context().then((c) => api('GET', `${c.base}/work-items/${item.id}/relations/`)));
+    return related.get(item.id);
+  };
+  const relationIds = (rel, kind) => (rel?.[kind] ?? []).map((r) => (typeof r === 'string' ? r : r.id ?? r.issue_id));
 
   let cycle = null;
   /** Ids of the work items in the project's current cycle: the sprint. */
@@ -263,7 +276,8 @@ export function planeClient({
     return raw ? remember(shape(raw, c)) : item;
   }
 
-  const stateFor = (c, group) => c.states.filter((s) => s.group === group)
+  // `qa` is the QA state, or Done in a project that has none.
+  const stateFor = (c, group) => (group === 'qa' && c.states.find((s) => s.name === qaState)) || c.states.filter((s) => s.group === (group === 'qa' ? 'completed' : group) && s.name !== qaState)
     .sort((a, b) => Number(Boolean(b.default)) - Number(Boolean(a.default)) || (a.sequence ?? 0) - (b.sequence ?? 0))[0];
 
   const commentOf = new Map(); // comment id -> work item id, for editComment
@@ -305,6 +319,11 @@ export function planeClient({
     issue: fresh,
     /** The work item as this client last had it, without asking Plane; null if it never did. */
     seen: (key) => last.get(key) ?? cache?.find((i) => i.key === key) ?? null,
+    /** This repository's work items carrying a label, in any state. */
+    labelledItems: async (name) => (await items()).filter((i) => i.repo === repo && labelNames(i).includes(name)),
+    /** This repository's work items waiting in QA, longest first. */
+    inQA: async () => (await items()).filter((i) => i.stage === 'qa' && i.repo === repo)
+      .sort((a, b) => (a.updated_at ?? '').localeCompare(b.updated_at ?? '')),
     /** Children of a work item (Plane's parent link), three levels down at most. */
     subIssues: async function subIssues(key, depth = 3) {
       const list = await items();
@@ -331,11 +350,17 @@ export function planeClient({
       if (!item.labelIds.some((id) => drop.has(id))) return;
       await patch(item, { labels: item.labelIds.filter((id) => !drop.has(id)) });
     },
-    /** Moves a work item to the first state of a group: unstarted, started, completed. */
+    /**
+     * Moves a work item to the first state of a group (unstarted, started,
+     * completed), or to QA (`qa`). Returns the stage it is in now: `completed`
+     * for `qa` in a project with no QA state.
+     */
     setStage: async (key, group) => {
       const item = await known(key);
-      if (item.stage === group) return;
-      await patch(item, { state: stateFor(await context(), group).id });
+      const to = stateFor(await context(), group);
+      const stage = to.name === qaState ? 'qa' : to.group;
+      if (item.stage !== stage) await patch(item, { state: to.id });
+      return stage;
     },
     comments: async (key) => {
       const item = await known(key);
@@ -371,21 +396,30 @@ export function planeClient({
      * item outside this project counts as open.
      */
     blockers: async (item) => {
-      const c = await context();
       const list = await items();
       const open = new Set();
       for (const ref of bodyBlockers(item.body)) {
         const other = await find(ref);
         if (other && other.state === 'open' && other.id !== item.id) open.add(other.key);
       }
-      const rel = await api('GET', `${c.base}/work-items/${item.id}/relations/`);
-      for (const r of rel?.blocked_by ?? []) {
-        const id = typeof r === 'string' ? r : r.id ?? r.issue_id;
+      for (const id of relationIds(await relations(item), 'blocked_by')) {
         const other = list.find((i) => i.id === id);
         if (!other) open.add(`${id} (in another project)`);
         else if (other.state === 'open') open.add(other.key);
       }
       return [...open];
+    },
+    /**
+     * The open work items Plane's "blocking" relations say wait on this one,
+     * by key. The description's side is read from the other items' "Blocked
+     * by" lines (rules.mjs, blockGraph).
+     */
+    blocking: async (item) => {
+      const list = await items();
+      return relationIds(await relations(item), 'blocking')
+        .map((id) => list.find((i) => i.id === id))
+        .filter((other) => other && other.state === 'open')
+        .map((other) => other.key);
     },
     /** The open work item a pull request or description refers to (`COUCHYUX-12`, `#1680`), or null. */
     find: (ref) => find(typeof ref === 'string' ? { key: ref } : { number: ref }),
@@ -426,6 +460,9 @@ export function tracker(gh, plane) {
     openIssues: plane.openIssues,
     subIssues: plane.subIssues,
     blockers: plane.blockers,
+    blocking: plane.blocking,
+    inQA: plane.inQA,
+    labelledItems: plane.labelledItems,
     createIssue: plane.createIssue,
     setStage: plane.setStage,
     addLink: plane.addLink,
@@ -464,6 +501,7 @@ export function planeFromEnv(repo, env = process.env) {
     project,
     repo,
     defaultRepo: [...projects].find(([, id]) => id === project)[0],
+    qaState: env.PLANE_QA_STATE || 'QA',
     dryRun: env.DRY_RUN === 'true',
   });
 }
