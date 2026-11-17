@@ -91,9 +91,10 @@ The first of these that holds:
 
 ### The two counters
 
-A run can't remember the last one, so the totals are kept in the desk work item's
-body, in a `swarm-counters` comment beside the one that holds the desk's
-state. Each run compares the items that carry the label now with those that
+A run can't remember the last one, so the totals are kept on the desk, in a
+`swarm-counters` HTML comment beside the one that holds the desk's state. In
+Plane, which drops HTML comments from a description, both are in the one desk
+comment the sweep edits each run; on a GitHub issue, in its body. Each run compares the items that carry the label now with those that
 carried it at the last run:
 
 - an item that carries it now and didn't then adds one;

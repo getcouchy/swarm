@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { DEFAULT_PROJECTS, htmlToText, isKey, mdToHtml, parseProjects, planeClient, tracker } from './plane.mjs';
 import { closingIssues, focus, linkedPulls, linkedTo, partOfIssues, whyNotClaimable } from './rules.mjs';
 import { claim } from './tick.mjs';
-import { followPulls, readLinked } from './sweep.mjs';
+import { followPulls, readLinked, writeDesk } from './sweep.mjs';
 import { run } from './commands.mjs';
 
 const PID = 'p1';
@@ -48,8 +48,13 @@ function fakePlane({ items = [], labels = [], cycle = [], relations = {}, limit 
       Object.assign(item(m[1]), data);
       return json(200, item(m[1]), headers);
     }
+    if ((m = /^projects\/p1\/work-items\/([\w-]+)\/comments\/([\w-]+)\/$/.exec(path)) && method === 'PATCH') {
+      const c = comments[m[1]].find((x) => x.id === m[2]);
+      Object.assign(c, data);
+      return json(200, c, headers);
+    }
     if ((m = /^projects\/p1\/work-items\/([\w-]+)\/comments\/$/.exec(path))) {
-      if (method === 'POST') (comments[m[1]] ??= []).push({ id: `c${Object.keys(comments).length}`, ...data });
+      if (method === 'POST') (comments[m[1]] ??= []).push({ id: `c${(comments[m[1]] ?? []).length}`, ...data });
       return json(method === 'POST' ? 201 : 200, method === 'POST' ? comments[m[1]].at(-1) : page(comments[m[1]] ?? []), headers);
     }
     if ((m = /^projects\/p1\/work-items\/([\w-]+)\/links\/$/.exec(path))) {
@@ -211,4 +216,27 @@ test('sweep: work items follow their PRs, each link added once', async () => {
   assert.deepEqual(again.lines, []);
   assert.equal(fake.links.i1.length, 1);
   assert.deepEqual(readLinked('nothing'), []);
+});
+
+test('desk in Plane: the markers live in one comment the sweep edits, so the next run remembers what it said', async () => {
+  const fake = fakePlane({ items: [] });
+  const gh = tracker({ repo: 'getcouchy/couchy' }, client(fake));
+  const overdue = [{ section: 'Needs you', key: 'human:COUCHYUX-7', line: 'COUCHYUX-7 Item 7' }];
+  await writeDesk(gh, { desk: null, overdue, fixed: [], linked: ['COUCHYUX-1<57'], now: Date.parse('2026-11-16T12:00:00Z') });
+  const [desk] = fake.items;
+  assert.doesNotMatch(desk.description_html, /<!--/, 'Plane drops comments from a description, so none are put there');
+  const posted = () => fake.comments[desk.id].map((c) => c.comment_html);
+  assert.equal(posted().length, 2, 'the state, then what is newly overdue');
+  assert.match(posted()[0], /<!-- agent-desk-state: \["human:COUCHYUX-7"\] -->/);
+  assert.match(posted()[0], /<!-- swarm-linked: \["COUCHYUX-1<57"\] -->/);
+
+  // The next run reads it back as sweep() would find it, and has nothing new to say.
+  const plane = client(fake);
+  const again = tracker({ repo: 'getcouchy/couchy' }, plane);
+  const key = `COUCHYUX-${desk.sequence_id}`;
+  const stateComment = (await again.comments(key)).find((c) => /agent-desk-state/.test(c.body));
+  const shaped = await plane.issue(key);
+  await writeDesk(again, { desk: shaped, stateComment, overdue, fixed: [], now: Date.parse('2026-11-16T12:10:00Z') });
+  assert.equal(posted().length, 2, 'edited in place; no second "newly overdue"');
+  assert.deepEqual(readLinked(posted()[0]), [], 'rewritten from this run alone: here it passed no linked pairs');
 });
