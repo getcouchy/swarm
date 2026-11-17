@@ -249,10 +249,12 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   // Agents that stopped ticking.
   const desk = issues.find((i) => labelNames(i).includes(DESK)) ?? null;
   const heartbeats = [];
+  let stateComment = null;
   if (desk) {
     for (const c of await gh.comments(desk.number)) {
       const id = heartbeatId(c);
       if (id) heartbeats.push({ agent: id, at: c.updated_at });
+      if (STATE.test(c.body ?? '')) stateComment = c;
     }
   }
   // An agent can have left more than one heartbeat comment; its newest is when it last ticked, and it gets one line.
@@ -271,11 +273,19 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   });
   const pullStates = pulls.filter(isReviewable)
     .map((pr) => ({ number: pr.number, state: states.get(pr.number) ?? (pr.draft ? 'draft' : 'waiting'), agent: agentOf(pr) }));
-  const { lines: followed, linked: linkedPairs } = await followPulls(gh, { pulls: pulls.filter((p) => !handsOff(p)), desk, now });
-  return { fixed, overdue, desk, pulls: pullStates, issues: issueStates, locks, heartbeats, fixedCounts, labelled, followed, linked: linkedPairs };
+  const { lines: followed, linked: linkedPairs } = await followPulls(gh, { pulls: pulls.filter((p) => !handsOff(p)), stored: deskState(desk, stateComment), now });
+  return { fixed, overdue, desk, stateComment, pulls: pullStates, issues: issueStates, locks, heartbeats, fixedCounts, labelled, followed, linked: linkedPairs };
 }
 
 const LINKED = /<!-- swarm-linked: (.*?) -->/s;
+
+/**
+ * Where the desk keeps what the next run reads back: an issue's body, or, on
+ * a Plane work item, whose description drops HTML comments, the one desk
+ * comment that carries the markers.
+ */
+const deskState = (desk, stateComment) => [desk?.body ?? '', stateComment?.body ?? ''].join('\n');
+const isMarker = (line) => /^<!-- (agent-desk-state|swarm-[a-z]+): /.test(line);
 
 /** The `item<pr` pairs already linked in Plane, kept in the desk so each link is added once. */
 export function readLinked(body) {
@@ -294,9 +304,9 @@ export function readLinked(body) {
  * to Done. A PR may name an item by its key or by the GitHub issue it was
  * copied from. Returns the lines to log and the pairs linked so far.
  */
-export async function followPulls(gh, { pulls, desk, now = Date.now() }) {
+export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) {
   if (!gh.findIssue) return { lines: [], linked: [] };
-  const seen = new Set(readLinked(desk?.html ?? desk?.body));
+  const seen = new Set(readLinked(stored));
   const lines = [];
   const link = async (item, pr) => {
     const pair = `${item.number}<${pr.number}`;
@@ -395,22 +405,30 @@ export function deskBody(overdue, now, counters, { comments = true, linked = [] 
  * once with what is newly overdue and what the sweep fixed. Returns the
  * counters it wrote into the body.
  */
-export async function writeDesk(gh, { desk, overdue, fixed, labelled = { needsHuman: [], hold: [] }, linked = [], now = Date.now(), comments = true }) {
-  // A work item's markers are in its HTML; its body is the text without them.
-  const stored = desk?.html ?? desk?.body;
+export async function writeDesk(gh, { desk, stateComment = null, overdue, fixed, labelled = { needsHuman: [], hold: [] }, linked = [], now = Date.now(), comments = true }) {
+  const stored = deskState(desk, stateComment);
   const counters = countLabelled(readCounters(stored), labelled);
   const body = deskBody(overdue, now, counters, { comments, linked });
+  // In Plane the markers go in a comment of their own; a GitHub issue keeps them in its body.
+  const plane = Boolean(gh.findIssue);
+  const lines = body.split('\n');
+  const shown = plane ? lines.filter((l) => !isMarker(l)).join('\n').trimEnd() : body;
+  const state = ['The Agent sweep reads this back on its next run; don\'t edit it.', '', ...lines.filter(isMarker)].join('\n');
   let seen = [];
   if (desk) {
     try {
-      seen = JSON.parse(STATE.exec(stored ?? '')?.[1] ?? '[]');
+      seen = JSON.parse(STATE.exec(stored)?.[1] ?? '[]');
     } catch {
       seen = []; // someone edited the body by hand; treat everything as new
     }
-    await gh.editIssue(desk.number, { body });
+    await gh.editIssue(desk.number, { body: shown });
   } else {
-    desk = await gh.createIssue('Agent desk', body, [DESK]);
+    desk = await gh.createIssue('Agent desk', shown, [DESK]);
     if (!desk) return counters; // dry run
+  }
+  if (plane) {
+    if (stateComment) await gh.editComment(stateComment.id, state);
+    else await gh.comment(desk.number, state);
   }
   const fresh = overdue.filter((o) => !seen.includes(o.key));
   if (comments && (fresh.length || fixed.length)) {
