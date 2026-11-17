@@ -2,7 +2,7 @@ apiVersion: v2
 name: swarm
 description: Runs the swarm's housekeeping scripts for one GitHub repository as CronJobs.
 type: application
-version: 0.3.0
+version: 0.3.1
 home: https://github.com/getcouchy/swarm
 sources:
   - https://github.com/getcouchy/swarm

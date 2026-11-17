@@ -87,6 +87,25 @@
           "query": "label_values(kube_cronjob_info{cronjob=\"agent-sweep\"}, namespace)",
           "refId": "namespace"
         }
+      },
+      {
+        "name": "item",
+        "type": "textbox",
+        "label": "Item",
+        "description": "A work item's key (COUCHYUX-34) or a pull request's number, for the Item timeline.",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      },
+      {
+        "name": "plane",
+        "type": "constant",
+        "hide": 2,
+        "label": "Plane",
+        "description": "Plane's web origin and workspace, which work item links open under.",
+        "query": "https://plane.home/couchy"
       }
     ]
   },
@@ -542,13 +561,327 @@
       "id": 34
     },
     {
+      "id": 35,
+      "type": "row",
+      "title": "Work",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Worked on",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "item"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open",
+                    "targetBlank": true,
+                    "url": "${__data.fields.url}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "time spent"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "last activity"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "last activity",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {
+            "mode": "columns"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {},
+          "filter": {
+            "id": "byRefId",
+            "options": "D"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "repo": {
+                "operation": "groupby"
+              },
+              "item": {
+                "operation": "groupby"
+              },
+              "type": {
+                "operation": "groupby"
+              },
+              "agent": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "uniqueValues"
+                ]
+              }
+            }
+          },
+          "filter": {
+            "id": "byRefId",
+            "options": "D"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {},
+          "filter": {
+            "id": "byRefId",
+            "options": "E"
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "repo": {
+                "operation": "groupby"
+              },
+              "item": {
+                "operation": "groupby"
+              },
+              "type": {
+                "operation": "groupby"
+              },
+              "task": {
+                "operation": "aggregate",
+                "aggregations": [
+                  "uniqueValues"
+                ]
+              }
+            }
+          },
+          "filter": {
+            "id": "byRefId",
+            "options": "E"
+          }
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #C": true,
+              "repo": true
+            },
+            "indexByName": {
+              "item": 0,
+              "type": 1,
+              "title": 2,
+              "agent (uniqueValues)": 3,
+              "task (uniqueValues)": 4,
+              "Value #A": 5,
+              "Value #B": 6
+            },
+            "renameByName": {
+              "agent (uniqueValues)": "agents",
+              "task (uniqueValues)": "tasks",
+              "Value #A": "time spent",
+              "Value #B": "last activity"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "sum by (repo, item, type) (sum_over_time({service=\"tick-runner\", agent=~\"$agent\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | tick_item=\"finished\" | unwrap seconds | __error__=\"\" [$__range]))",
+          "queryType": "instant"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "max by (repo, item, type, url) (max_over_time({service=\"tick-runner\", agent=~\"$agent\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | label_format url=`{{ if .key }}$plane/browse/{{ .key }}/{{ else }}https://github.com/{{ .repo }}/pull/{{ .item }}{{ end }}` | label_format at_s=`{{ toDate \"2006-01-02T15:04:05Z07:00\" .at | unixEpoch }}` | unwrap at_s | __error__=\"\" [$__range])) * 1000",
+          "queryType": "instant"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "topk by (repo, item, type) (1, max by (repo, item, type, title) (max_over_time({service=\"tick-runner\", agent=~\"$agent\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | title!=\"\" | label_format at_s=`{{ toDate \"2006-01-02T15:04:05Z07:00\" .at | unixEpoch }}` | unwrap at_s | __error__=\"\" [$__range])))",
+          "queryType": "instant"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "count by (repo, item, type, agent) (count_over_time({service=\"tick-runner\", agent=~\"$agent\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" [$__range]))",
+          "queryType": "instant"
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "count by (repo, item, type, task) (count_over_time({service=\"tick-runner\", agent=~\"$agent\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | task!=\"\" [$__range]))",
+          "queryType": "instant"
+        }
+      ],
+      "description": "Each work item and pull request the agents' tick runners touched in this time range, from their item log lines in Loki: the latest title, who, which jobs, the time their finished jobs took, and the last thing that happened to it. An item only claimed or handed off has no time spent. A work item opens in Plane, a pull request on GitHub.",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 9
+      },
+      "id": 36
+    },
+    {
+      "type": "logs",
+      "title": "Item timeline",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "description": "Everything any agent's tick runner did to the item named in the Item box above, oldest first. Empty while the box is.",
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Ascending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "{service=\"tick-runner\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | label_format hash_item=`#{{ .item }}` | hash_item=~\"(?i)#?${item:regex}\" | line_format `{{ printf \"%-10s\" .agent }} {{ printf \"%-11s\" .tick_item }} {{ if .key }}{{ .key }}{{ else }}#{{ .item }}{{ end }}{{ if .title }} {{ .title }}{{ end }}{{ if .task }}  [{{ .task }}]{{ end }}{{ if .seconds }}  {{ div .seconds 60 }}m{{ mod .seconds 60 }}s{{ end }}`"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 12
+      },
+      "id": 37
+    },
+    {
+      "type": "logs",
+      "title": "Agent log",
+      "datasource": {
+        "type": "loki",
+        "uid": "${loki}"
+      },
+      "description": "Every line the chosen agents' tick containers wrote in this time range, oldest first: the runner's own lines as written, item lines rewritten to read like the Item timeline. One agent over the span of a run is that run.",
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Ascending",
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "${loki}"
+          },
+          "expr": "{service=\"tick-runner\", agent=~\"$agent\"} | json | line_format `{{ if .tick_item }}{{ printf \"%-10s\" .agent }} {{ printf \"%-11s\" .tick_item }} {{ if .key }}{{ .key }}{{ else }}{{ .repo }}#{{ .item }}{{ end }}{{ if .title }} {{ .title }}{{ end }}{{ if .task }}  [{{ .task }}]{{ end }}{{ if .seconds }}  {{ div .seconds 60 }}m{{ mod .seconds 60 }}s{{ end }}{{ else }}{{ __line__ }}{{ end }}` | drop __error__, __error_details__"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 12
+      },
+      "id": 38
+    },
+    {
       "id": 6,
       "type": "row",
       "title": "Queue",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 43,
         "w": 24,
         "h": 1
       }
@@ -600,7 +933,7 @@
       "description": "Claimable: approved and nobody has taken it. Blockers are not looked up, so a blocked issue counts as claimable.",
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 44,
         "w": 12,
         "h": 7
       },
@@ -670,7 +1003,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 22,
+        "y": 44,
         "w": 12,
         "h": 7
       },
@@ -683,7 +1016,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 29,
+        "y": 51,
         "w": 24,
         "h": 1
       }
@@ -730,7 +1063,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 52,
         "w": 12,
         "h": 8
       },
@@ -800,7 +1133,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 30,
+        "y": 52,
         "w": 12,
         "h": 8
       },
@@ -849,7 +1182,7 @@
       "description": "The required `reviewed` status on each open pull request's head.",
       "gridPos": {
         "x": 0,
-        "y": 38,
+        "y": 60,
         "w": 12,
         "h": 7
       },
@@ -918,7 +1251,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 38,
+        "y": 60,
         "w": 12,
         "h": 7
       },
@@ -931,7 +1264,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 45,
+        "y": 67,
         "w": 24,
         "h": 1
       }
@@ -985,7 +1318,7 @@
       "description": "Open items carrying swarm/needs-human.",
       "gridPos": {
         "x": 0,
-        "y": 46,
+        "y": 68,
         "w": 4,
         "h": 8
       },
@@ -1034,7 +1367,7 @@
       "description": "What the Agent desk lists, by section. docs/metrics.md in getcouchy/swarm says what each kind is.",
       "gridPos": {
         "x": 4,
-        "y": 46,
+        "y": 68,
         "w": 8,
         "h": 8
       },
@@ -1125,7 +1458,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 46,
+        "y": 68,
         "w": 12,
         "h": 8
       },
@@ -1138,7 +1471,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 54,
+        "y": 76,
         "w": 24,
         "h": 1
       }
@@ -1184,7 +1517,7 @@
       "description": "Times swarm/needs-human went onto an issue or pull request, by the agent it was with. An agent's tick runner counts its handoffs as it makes them; the sweep's count is used only for an agent whose runner does not, since both count the same handoff.",
       "gridPos": {
         "x": 0,
-        "y": 55,
+        "y": 77,
         "w": 12,
         "h": 7
       },
@@ -1231,7 +1564,7 @@
       "description": "Times swarm/hold went onto a pull request. From the agent's tick runner where it counts handoffs, else from the sweep; never both.",
       "gridPos": {
         "x": 12,
-        "y": 55,
+        "y": 77,
         "w": 12,
         "h": 7
       },
@@ -1244,7 +1577,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 62,
+        "y": 84,
         "w": 24,
         "h": 1
       }
@@ -1301,7 +1634,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 85,
         "w": 8,
         "h": 6
       },
@@ -1356,7 +1689,7 @@
       "description": "Failed Jobs still kept in the namespace, from kube-state-metrics. This is every CronJob in it, not only the two that push metrics.",
       "gridPos": {
         "x": 8,
-        "y": 63,
+        "y": 85,
         "w": 4,
         "h": 6
       },
@@ -1399,7 +1732,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 63,
+        "y": 85,
         "w": 12,
         "h": 6
       },
@@ -1443,7 +1776,7 @@
       "description": "Left in the App token's hour after each run.",
       "gridPos": {
         "x": 0,
-        "y": 69,
+        "y": 91,
         "w": 12,
         "h": 6
       },
@@ -1489,7 +1822,7 @@
       ],
       "gridPos": {
         "x": 12,
-        "y": 69,
+        "y": 91,
         "w": 12,
         "h": 6
       },
@@ -1502,7 +1835,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 75,
+        "y": 97,
         "w": 24,
         "h": 1
       }
@@ -1548,7 +1881,7 @@
       "description": "Runs each agent's tick runner finished, by how they ended (getcouchy/agent-runner's tick_runs_total).",
       "gridPos": {
         "x": 0,
-        "y": 76,
+        "y": 98,
         "w": 12,
         "h": 7
       },
@@ -1616,7 +1949,7 @@
       "description": "Running from the runner's start push until its end push. One left running past the timeout is a run whose container died.",
       "gridPos": {
         "x": 12,
-        "y": 76,
+        "y": 98,
         "w": 4,
         "h": 7
       },
@@ -1659,7 +1992,7 @@
       ],
       "gridPos": {
         "x": 16,
-        "y": 76,
+        "y": 98,
         "w": 8,
         "h": 7
       },
@@ -1672,7 +2005,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 83,
+        "y": 105,
         "w": 24,
         "h": 1
       }
@@ -1704,7 +2037,7 @@
       ],
       "gridPos": {
         "x": 0,
-        "y": 84,
+        "y": 106,
         "w": 24,
         "h": 12
       },
