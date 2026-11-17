@@ -70,8 +70,8 @@ export function mayContinue({ startedAt, now = Date.now(), minutes = 20, ceiling
 export async function releaseAll(gh, me) {
   const held = (i) => providers(i).includes(me);
   const mine = [
-    ...(await gh.openIssues()).filter(held).map((i) => ({ number: i.number, type: 'issue' })),
-    ...(await gh.openPulls()).filter(held).map((p) => ({ number: p.number, type: 'pull' })),
+    ...(await gh.openIssues()).filter(held).map((i) => ({ number: i.number, type: 'issue', title: i.title })),
+    ...(await gh.openPulls()).filter(held).map((p) => ({ number: p.number, type: 'pull', title: p.title })),
   ];
   for (const item of mine) await gh.removeLabel(item.number, AGENT_PREFIX + me);
   return mine;

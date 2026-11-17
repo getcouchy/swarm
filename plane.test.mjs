@@ -240,3 +240,39 @@ test('desk in Plane: the markers live in one comment the sweep edits, so the nex
   assert.equal(posted().length, 2, 'edited in place; no second "newly overdue"');
   assert.deepEqual(readLinked(posted()[0]), [], 'rewritten from this run alone: here it passed no linked pairs');
 });
+
+test('events: a work item carries its title from what the tracker read, a PR its own; the line asks Plane nothing', async () => {
+  const fake = fakePlane({ items: [raw(12), raw(13, { labels: ['l-agent'] })], labels: [{ id: 'l-agent', name: 'swarm/agent/codex' }] });
+  const pulls = [{ number: 57, title: 'Fix login', labels: [{ name: 'swarm/pr' }, { name: 'swarm/agent/codex' }] }];
+  const gh = {
+    repo: 'getcouchy/couchy',
+    rateLimitRemaining: () => 10,
+    openPulls: async () => pulls,
+    requiredChecks: async () => [],
+    issue: async (n) => ({ ...pulls.find((p) => p.number === n), pull_request: {} }),
+    removeLabel: async () => {},
+  };
+  // A fresh tracker for each command: the title comes from what that command read.
+  const line = async (cmd, args) => {
+    const { event } = await run(cmd, args, { clients: [tracker(gh, client(fake))], me: 'codex', ceiling: 45, entry: 'agent.mjs' });
+    const before = fake.calls.length;
+    const { v, at, rateLimitRemaining, ...rest } = await event();
+    assert.equal(fake.calls.length, before, `${cmd}: no Plane call for its line`);
+    return rest;
+  };
+  const twelve = { repo: 'getcouchy/couchy', number: 12, type: 'issue', key: 'COUCHYUX-12', title: 'Item 12' };
+  const thirteen = { repo: 'getcouchy/couchy', number: 13, type: 'issue', key: 'COUCHYUX-13', title: 'Item 13' };
+  const pr = { repo: 'getcouchy/couchy', number: 57, type: 'pull', title: 'Fix login' };
+  assert.deepEqual(await line('claim', ['COUCHYUX-12']), { cmd: 'claim', ...twelve, claimed: [twelve] });
+  assert.deepEqual(await line('needs-human', ['COUCHYUX-12', 'Which', 'one?']), { cmd: 'needs-human', ...twelve });
+  assert.deepEqual(await line('release', ['COUCHYUX-12']), { cmd: 'release', ...twelve, released: [twelve] });
+  assert.deepEqual(await line('release', ['57']), { cmd: 'release', ...pr, released: [pr] });
+  assert.deepEqual(await line('finish', []), { cmd: 'finish', released: [thirteen, pr] });
+
+  // next: the job's work item, titled, in the line and in what it claimed.
+  pulls.length = 0;
+  fake.items.splice(1);
+  fake.items[0].labels = [];
+  fake.items[0].state = 's-todo';
+  assert.deepEqual(await line('next', []), { cmd: 'next', job: 'implement', ...twelve, claimed: [twelve] });
+});

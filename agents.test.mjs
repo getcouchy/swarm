@@ -248,7 +248,7 @@ test('next: a label is a lock on work in progress, and any agent carries the swa
 
   // The end of a job or a tick: my lock comes off everything.
   gh = fake({ issues: [issue(1, ['couchy-ux/approved', 'swarm/agent/codex']), issue(2, ['couchy-ux/approved', 'swarm/agent/grok'])], pulls: [pull(50, ['swarm/pr', 'swarm/agent/codex'])] });
-  assert.deepEqual(await releaseAll(gh, 'codex'), [{ number: 1, type: 'issue' }, { number: 50, type: 'pull' }]);
+  assert.deepEqual(await releaseAll(gh, 'codex'), [{ number: 1, type: 'issue', title: 'Issue 1' }, { number: 50, type: 'pull', title: 'PR 50' }]);
   assert.deepEqual(gh.log, ['remove 1 swarm/agent/codex', 'remove 50 swarm/agent/codex']);
 });
 
@@ -848,32 +848,32 @@ async function tickEvent(clients, cmd, args = []) {
   return { out, line };
 }
 
-test('TICK_EVENTS_FILE: next writes the job it offered and what it claimed', async () => {
+test('TICK_EVENTS_FILE: next writes the job it offered, with its title, and what it claimed', async () => {
   const home = 'getcouchy/couchy';
   const agent = 'getcouchy/couchy-agent';
   // The fewest requests left on any client, whichever has answered.
   const limited = (gh, left) => Object.assign(gh, { rateLimitRemaining: () => left });
   let { line } = await tickEvent([limited(fake({ issues: [issue(3)] }), 4900), limited(fake({ repo: agent }), 4870), limited(fake({ repo: 'o/r' }), null)], 'next');
-  const three = { repo: home, number: 3, type: 'issue' };
+  const three = { repo: home, number: 3, type: 'issue', title: 'Issue 3' };
   assert.deepEqual(line, { v: 1, cmd: 'next', job: 'implement', ...three, claimed: [three], rateLimitRemaining: 4870 });
 
   // A PR's job is on the PR; a fix takes its lock, a review takes none, and --look takes nothing.
   const red = { sha20: [{ name: 'check', conclusion: 'failure' }] };
   ({ line } = await tickEvent([fake({ pulls: [pull(20, ['swarm/pr'])], checks: red })], 'next'));
-  const twenty = { repo: home, number: 20, type: 'pull' };
+  const twenty = { repo: home, number: 20, type: 'pull', title: 'PR 20' };
   assert.deepEqual(line, { v: 1, cmd: 'next', job: 'fix', ...twenty, claimed: [twenty], rateLimitRemaining: null });
   ({ line } = await tickEvent([fake({ issues: [issue(3)] }), fake({ repo: agent, pulls: [pull(13, ['swarm/pr'])] })], 'next'));
-  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'review', repo: agent, number: 13, type: 'pull', claimed: [], rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'review', repo: agent, number: 13, type: 'pull', title: 'PR 13', claimed: [], rateLimitRemaining: null });
   const looked = fake({ issues: [issue(3)] });
   ({ line } = await tickEvent([looked], 'next', ['--look']));
   assert.deepEqual([line.job, line.number, line.claimed, looked.log], ['implement', 3, [], []]);
   // A draft carried on is the PR's; my own lock on an issue with no PR is the issue's, held from now though taken before.
   ({ line } = await tickEvent([fake({ issues: [issue(1)], pulls: [pull(20, ['swarm/pr'], { draft: true, body: 'Closes #1' })] })], 'next'));
-  assert.deepEqual([line.job, line.number, line.type, line.claimed], ['implement', 20, 'pull', [twenty]]);
+  assert.deepEqual([line.job, line.number, line.type, line.title, line.claimed], ['implement', 20, 'pull', 'PR 20', [twenty]]);
   const held = fake({ issues: [issue(4, ['couchy-ux/approved', 'swarm/agent/codex'])] });
   ({ line } = await tickEvent([held], 'next'));
-  const four = { repo: home, number: 4, type: 'issue' };
-  assert.deepEqual([line.job, line.number, line.type, line.claimed, held.log], ['implement', 4, 'issue', [four], []]);
+  const four = { repo: home, number: 4, type: 'issue', title: 'Issue 4' };
+  assert.deepEqual([line.job, line.number, line.type, line.title, line.claimed, held.log], ['implement', 4, 'issue', 'Issue 4', [four], []]);
 
   // Nothing to do: why, and what was passed by in each repository.
   let out;
@@ -882,37 +882,42 @@ test('TICK_EVENTS_FILE: next writes the job it offered and what it claimed', asy
   assert.match(line.skipped[0].why, /needs design/);
 });
 
-test('TICK_EVENTS_FILE: more and finish write what they released', async () => {
+test('TICK_EVENTS_FILE: more and finish write what they released, with titles', async () => {
   const home = 'getcouchy/couchy';
   const mine = () => fake({ issues: [issue(1, ['couchy-ux/approved', 'swarm/agent/codex'])], pulls: [pull(50, ['swarm/pr', 'swarm/agent/codex'])] });
-  const released = [{ repo: home, number: 1, type: 'issue' }, { repo: home, number: 50, type: 'pull' }];
+  const released = [{ repo: home, number: 1, type: 'issue', title: 'Issue 1' }, { repo: home, number: 50, type: 'pull', title: 'PR 50' }];
   let { out, line } = await tickEvent([mine()], 'more', [`--started=${new Date().toISOString()}`]);
-  assert.deepEqual(line, { v: 1, cmd: 'more', job: 'review', repo: home, number: 50, type: 'pull', released, rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'more', job: 'review', repo: home, number: 50, type: 'pull', title: 'PR 50', released, rateLimitRemaining: null });
   assert.deepEqual(out.released, ['getcouchy/couchy#1', 'getcouchy/couchy#50'], 'what it prints is unchanged');
   ({ line } = await tickEvent([fake({ issues: [issue(3)] })], 'more', [`--started=${new Date(Date.now() - 3_600_000).toISOString()}`]));
   assert.deepEqual(line, { v: 1, cmd: 'more', job: 'none', released: [], why: '60 minutes into this tick (limit 20)', skipped: [], rateLimitRemaining: null });
 
   const agent = fake({ repo: 'getcouchy/couchy-agent', issues: [issue(12, ['couchy-ux/approved', 'swarm/agent/codex'])] });
   ({ out, line } = await tickEvent([mine(), agent], 'finish'));
-  assert.deepEqual(line, { v: 1, cmd: 'finish', released: [...released, { repo: 'getcouchy/couchy-agent', number: 12, type: 'issue' }], rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'finish', released: [...released, { repo: 'getcouchy/couchy-agent', number: 12, type: 'issue', title: 'Issue 12' }], rateLimitRemaining: null });
   assert.deepEqual(out, { finished: true, released: ['getcouchy/couchy#1', 'getcouchy/couchy#50', 'getcouchy/couchy-agent#12'] });
 });
 
-test('TICK_EVENTS_FILE: claim and release write the item, typed, and the outcome', async () => {
+test('TICK_EVENTS_FILE: claim and release write the item, typed and titled, and the outcome', async () => {
   const agent = 'getcouchy/couchy-agent';
   const clients = () => [fake({ issues: [issue(3)] }), fake({ repo: agent, pulls: [pull(13, ['swarm/pr', 'swarm/agent/grok'], { pull_request: {} }), pull(14, ['swarm/pr', 'swarm/agent/codex'], { pull_request: {} })] })];
   let { out, line } = await tickEvent(clients(), 'claim', ['3']);
-  const three = { repo: 'getcouchy/couchy', number: 3, type: 'issue' };
+  const three = { repo: 'getcouchy/couchy', number: 3, type: 'issue', title: 'Issue 3' };
   assert.deepEqual(line, { v: 1, cmd: 'claim', ...three, claimed: [three], rateLimitRemaining: null });
   ({ out, line } = await tickEvent(clients(), 'claim', [`${agent}#13`]));
   assert.equal(out.claimed, false);
-  assert.deepEqual(line, { v: 1, cmd: 'claim', repo: agent, number: 13, type: 'pull', claimed: [], lost: true, rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'claim', repo: agent, number: 13, type: 'pull', title: 'PR 13', claimed: [], lost: true, rateLimitRemaining: null });
 
   const both = clients();
   ({ out, line } = await tickEvent(both, 'release', [`${agent}#14`, 'blocked on #9']));
-  const fourteen = { repo: agent, number: 14, type: 'pull' };
+  const fourteen = { repo: agent, number: 14, type: 'pull', title: 'PR 14' };
   assert.deepEqual(line, { v: 1, cmd: 'release', ...fourteen, released: [fourteen], rateLimitRemaining: null });
   assert.deepEqual(both[1].log, ['remove 14 swarm/agent/codex', 'comment 14']);
+
+  // A title GitHub didn't give costs the field, not the line.
+  ({ line } = await tickEvent([fake({ issues: [issue(3, undefined, { title: undefined })] })], 'claim', ['3']));
+  const bare = { repo: 'getcouchy/couchy', number: 3, type: 'issue' };
+  assert.deepEqual(line, { v: 1, cmd: 'claim', ...bare, claimed: [bare], rateLimitRemaining: null });
 });
 
 test('TICK_EVENTS_FILE unset: nothing is written or asked of GitHub; a failed write is not the command\'s', async () => {
@@ -946,11 +951,11 @@ test('needs-human and hold: the comment, then the label, then the line the runne
   assert.deepEqual(home.log, ['comment 3', 'add 3 swarm/needs-human'], 'the label pages with the latest comment, so it comes second');
   assert.equal(comments[3][0].body, 'Keep the old rows or drop them? I would keep them.\n\n<!-- agent: codex -->');
   assert.deepEqual(out, { repo: 'getcouchy/couchy', issue: 3, label: 'swarm/needs-human', commented: true, labelled: true });
-  assert.deepEqual(line, { v: 1, cmd: 'needs-human', repo: 'getcouchy/couchy', number: 3, type: 'issue', rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'needs-human', repo: 'getcouchy/couchy', number: 3, type: 'issue', title: 'Issue 3', rateLimitRemaining: null });
 
   ({ out, line } = await tickEvent([home, other], 'hold', [`${agent}#13`, 'Waits for #12 to merge.']));
   assert.deepEqual(other.log, ['comment 13', 'add 13 swarm/hold']);
-  assert.deepEqual(line, { v: 1, cmd: 'hold', repo: agent, number: 13, type: 'pull', rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'hold', repo: agent, number: 13, type: 'pull', title: 'PR 13', rateLimitRemaining: null });
 
   // A step that fails stops it there, says how far it got, and writes nothing.
   const broken = (step) => Object.assign(fake({ issues: [issue(3)] }), { [step]: async () => { throw new Error(`${step}: 502`); } });

@@ -36,8 +36,8 @@ they differ, so an old clone never applies old rules.
 
 With `TICK_EVENTS_FILE` set, each `agent.mjs` command that runs to completion
 appends one JSON line to that file: the job it offered, the locks it took or
-released and the handoffs it made (each with its repository, number and
-`issue` or `pull`; a work item also with its `key`, its number being its
+released and the handoffs it made (each with its repository, number, `issue`
+or `pull` and title; a work item also with its `key`, its number being its
 sequence number in Plane), and the GitHub requests left on the token. The tick runner in getcouchy/agent-runner
 sets it for each run and turns the lines into live metrics; how it reads them
 is documented there. Unset, nothing is written.

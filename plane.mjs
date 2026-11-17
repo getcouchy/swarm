@@ -215,8 +215,10 @@ export function planeClient({
     const c = await context();
     return (cache ??= (await all(`${c.base}/issues/`)).map((raw) => shape(raw, c)));
   };
+  const last = new Map(); // key -> the item as this client last read or wrote it
   const remember = (item) => {
     if (cache) cache = [...cache.filter((i) => i.id !== item.id), item];
+    last.set(item.key, item);
     return item;
   };
   /** The item as Plane has it now, never from the cache: claims are decided on it. */
@@ -301,6 +303,8 @@ export function planeClient({
         .sort((a, b) => a.created_at.localeCompare(b.created_at));
     },
     issue: fresh,
+    /** The work item as this client last had it, without asking Plane; null if it never did. */
+    seen: (key) => last.get(key) ?? cache?.find((i) => i.key === key) ?? null,
     /** Children of a work item (Plane's parent link), three levels down at most. */
     subIssues: async function subIssues(key, depth = 3) {
       const list = await items();
@@ -426,6 +430,7 @@ export function tracker(gh, plane) {
     setStage: plane.setStage,
     addLink: plane.addLink,
     findIssue: plane.find,
+    seen: plane.seen,
     issue: (ref) => to(ref).issue(ref),
     addLabel: (ref, name) => to(ref).addLabel(ref, name),
     removeLabel: (ref, name) => to(ref).removeLabel(ref, name),
