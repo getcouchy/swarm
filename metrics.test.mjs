@@ -18,7 +18,7 @@ test('dashboard: every swarm_ metric it queries is defined; none is left out', (
   const used = new Set(text.match(/swarm_[a-z_]+/g).filter((n) => !['swarm_sweep', 'swarm_reviewed'].includes(n)));
   for (const name of used) assert.ok(METRICS[name], `${name} is not defined`);
   for (const name of Object.keys(METRICS)) assert.ok(used.has(name), `${name} is on no panel`);
-  assert.deepEqual(dash.templating.list.map((v) => v.name), ['prometheus', 'loki', 'repository', 'agent', 'namespace']);
+  assert.deepEqual(dash.templating.list.map((v) => v.name), ['prometheus', 'loki', 'repository', 'agent', 'namespace', 'item', 'plane']);
   // Every Prometheus query is narrowed to the chosen repository, or it would mix repositories.
   const exprs = dash.panels.flatMap((p) => p.targets ?? []).filter((t) => t.datasource.type === 'prometheus').map((t) => t.expr);
   for (const expr of exprs.filter((e) => e.includes('swarm_'))) assert.match(expr, /repository="\$repository"/, expr);

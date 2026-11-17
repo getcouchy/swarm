@@ -146,3 +146,17 @@ agent whose runner does not; both count the same locks and handoffs, so one
 agent never gets both. The runner's handoffs carry their own `repository`, so
 each repository's dashboard counts only the handoffs made in it. "On now" and
 "Last run" list the runner's jobs in flight and those of each agent's last run.
+
+The Work row reads the tick runner's item log from Loki (lines starting
+`{"tick_item":`, labelled `service="tick-runner"` and `agent`), keyed by each
+line's `item`: a work item's Plane key (`COUCHYUX-34`) or a pull request's
+number. "Worked on" lists each work item and pull request in the repository
+that an agent touched in the time range, with its latest title, the agents and
+jobs, the time its finished jobs took and its last activity; an item only
+claimed or handed off is there too, with no time. A work item links to Plane
+under the dashboard's hidden `plane` constant (web origin and workspace), a
+pull request to GitHub. "Item timeline" lists everything done to the item typed
+into the Item box (`COUCHYUX-34`, `57` or `#57`), oldest first, and is empty
+while the box is. "Agent log" lists every line from the chosen agents' tick
+containers, the runner's own lines as written and item lines rewritten to read
+like the timeline; one agent over the span of a run is that run.
