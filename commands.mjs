@@ -4,7 +4,7 @@
 
 import { appendFileSync } from 'node:fs';
 import { isKey } from './plane.mjs';
-import { HOLD, NEEDS_HUMAN } from './rules.mjs';
+import { closingIssues, HOLD, linkedPulls, NEEDS_HUMAN, partOfIssues } from './rules.mjs';
 import { SHAPE_COMMANDS, SHAPE_USAGE, ShapeUsage, shapeCommand } from './shape.mjs';
 import { claim, firstJob, heartbeat, mayContinue, nextAcross, release, releaseAll } from './tick.mjs';
 
@@ -39,6 +39,39 @@ const read = async (client, ref) => {
   const i = await client.issue(ref);
   return item(client.repo, ref, i.pull_request ? 'pull' : 'issue', i.title);
 };
+/**
+ * A line with what ties each of its items to the other tracker: a pull request
+ * gets `workItem`, the key its body closes or is part of, and a work item gets
+ * `pulls`, the numbers of the open pull requests that name it. Neither is there
+ * when nothing links. One read of each repository's open pull requests; a
+ * repository that can't be read costs its links, not the line.
+ */
+async function withLinks(clients, line) {
+  const open = new Map(); // repo -> its open pull requests, read once
+  const pullsOf = (repo) => {
+    if (!open.has(repo)) open.set(repo, (async () => clients.find((c) => c.repo === repo).openPulls())().catch(() => []));
+    return open.get(repo);
+  };
+  const link = async (it) => {
+    if (it?.type !== 'issue' && it?.type !== 'pull') return {};
+    const pulls = await pullsOf(it.repo);
+    if (it.type === 'pull') {
+      const body = pulls.find((p) => p.number === it.number)?.body;
+      const workItem = [...closingIssues(body), ...partOfIssues(body)].find(isKey);
+      return workItem ? { workItem } : {};
+    }
+    const numbers = (linkedPulls(pulls).get(it.key ?? it.number) ?? []).map((p) => p.number);
+    return numbers.length ? { pulls: numbers } : {};
+  };
+  const each = async (items) => Promise.all(items.map(async (it) => ({ ...it, ...await link(it) })));
+  return {
+    ...line,
+    ...await link(line),
+    ...(line.claimed ? { claimed: await each(line.claimed) } : {}),
+    ...(line.released ? { released: await each(line.released) } : {}),
+  };
+}
+
 /** The fewest GitHub requests any of the clients has left, or null before any response. */
 const rateLimit = (clients) => {
   const left = clients.map((c) => c.rateLimitRemaining?.()).filter((n) => n != null);
@@ -50,8 +83,8 @@ const rateLimit = (clients) => {
  * role, ceiling, minutes, entry (how the agent ran agent.mjs), checkout (what
  * the preflight found, for next) }. Returns { out, event }: `out` is what the
  * command prints, and event() builds its TICK_EVENTS_FILE line, so nothing
- * extra is asked of GitHub unless that file is set; null for a handoff that
- * failed.
+ * extra is asked of GitHub unless that file is set (withLinks reads the open
+ * pull requests there); null for a handoff that failed.
  */
 export async function run(cmd, args, { clients, me, can, role, ceiling, minutes, entry, checkout = null }) {
   const gh = clients[0]; // the home repository: the Agent desk and its heartbeats live there
@@ -68,7 +101,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
     return { client, number: Number(m[2]) };
   };
   const done = (out, fields) => ({ out, event: async () => {
-    const line = await fields();
+    const line = await withLinks(clients, await fields());
     return { v: 1, at: new Date().toISOString(), cmd, ...line, rateLimitRemaining: rateLimit(clients) };
   } });
   const releaseMine = async (soft) => {

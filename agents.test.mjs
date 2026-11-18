@@ -973,6 +973,35 @@ test('TICK_EVENTS_FILE: claim and release write the item, typed and titled, and 
   assert.deepEqual(line, { v: 1, cmd: 'claim', ...bare, claimed: [bare], rateLimitRemaining: null });
 });
 
+test('TICK_EVENTS_FILE: a pull request names its work item, and a work item its open pull requests', async () => {
+  const home = 'getcouchy/couchy';
+  const gh = () => fake({
+    issues: [issue('COUCHYUX-7', ['couchy-ux/approved', 'swarm/focus', 'swarm/agent/codex'])],
+    pulls: [
+      pull(50, ['swarm/pr', 'swarm/agent/codex'], { body: 'Part of COUCHYUX-7 (1 of 2)' }),
+      pull(51, ['swarm/pr'], { body: 'Closes COUCHYUX-7.', pull_request: {} }),
+      pull(52, ['swarm/pr'], { body: 'Closes #3', pull_request: {} }),
+    ],
+  });
+  const seven = { repo: home, number: 7, type: 'issue', key: 'COUCHYUX-7', title: 'Issue COUCHYUX-7', pulls: [50, 51] };
+  const fifty = { repo: home, number: 50, type: 'pull', title: 'PR 50', workItem: 'COUCHYUX-7' };
+  let { line } = await tickEvent([gh()], 'finish');
+  assert.deepEqual(line, { v: 1, cmd: 'finish', released: [seven, fifty], rateLimitRemaining: null });
+
+  // The command's own item carries it too; a PR that names no work item by key carries nothing.
+  const one = { repo: home, number: 51, type: 'pull', title: 'PR 51', workItem: 'COUCHYUX-7' };
+  ({ line } = await tickEvent([gh()], 'claim', ['51']));
+  assert.deepEqual(line, { v: 1, cmd: 'claim', ...one, claimed: [one], rateLimitRemaining: null });
+  ({ line } = await tickEvent([gh()], 'claim', ['52']));
+  assert.deepEqual([line.workItem, line.pulls, line.claimed], [undefined, undefined, [{ repo: home, number: 52, type: 'pull', title: 'PR 52' }]]);
+
+  // Open pull requests that can't be read cost the links, not the line.
+  const closed = Object.assign(gh(), { openPulls: async () => { throw new Error('403'); } });
+  ({ line } = await tickEvent([closed], 'release', ['COUCHYUX-7']));
+  const bare = { repo: home, number: 7, type: 'issue', key: 'COUCHYUX-7' };
+  assert.deepEqual(line, { v: 1, cmd: 'release', ...bare, released: [bare], rateLimitRemaining: null });
+});
+
 test('TICK_EVENTS_FILE unset: nothing is written or asked of GitHub; a failed write is not the command\'s', async () => {
   const gh = fake({ issues: [issue(3)] });
   let asked = 0;
