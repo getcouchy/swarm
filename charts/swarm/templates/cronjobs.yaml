@@ -64,26 +64,16 @@ spec:
                 - name: SWARM_PUSHGATEWAY_URL
                   value: {{ . | quote }}
                 {{- end }}
-                {{- with $.Values.plane.secretName }}
-                - name: PLANE_API_TOKEN
-                  valueFrom: { secretKeyRef: { name: {{ . }}, key: api-key } }
-                - name: PLANE_WORKSPACE
-                  valueFrom: { secretKeyRef: { name: {{ . }}, key: workspace-slug, optional: true } }
-                {{- if not $.Values.plane.baseUrl }}
-                - name: PLANE_BASE_URL
-                  valueFrom: { secretKeyRef: { name: {{ . }}, key: base-url, optional: true } }
+                {{- with $.Values.linear.secretName }}
+                - name: LINEAR_CLIENT_ID
+                  valueFrom: { secretKeyRef: { name: {{ . }}, key: client-id, optional: true } }
+                - name: LINEAR_CLIENT_SECRET
+                  valueFrom: { secretKeyRef: { name: {{ . }}, key: client-secret, optional: true } }
+                - name: LINEAR_API_KEY
+                  valueFrom: { secretKeyRef: { name: {{ . }}, key: api-key, optional: true } }
                 {{- end }}
-                {{- end }}
-                {{- with $.Values.plane.baseUrl }}
-                - name: PLANE_BASE_URL
-                  value: {{ . | quote }}
-                {{- end }}
-                {{- with $.Values.plane.webUrl }}
-                - name: PLANE_WEB_URL
-                  value: {{ . | quote }}
-                {{- end }}
-                {{- with $.Values.plane.projects }}
-                - name: PLANE_PROJECTS
+                {{- with $.Values.linear.teams }}
+                - name: LINEAR_TEAMS
                   value: {{ . | quote }}
                 {{- end }}
                 - name: SWARM_APP_ID

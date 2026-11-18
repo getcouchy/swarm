@@ -1,11 +1,11 @@
 // The rules of the multi-provider agent protocol (see PROTOCOL.md), as pure
 // functions over the shapes the clients return: GitHub's REST shapes for pull
-// requests, and Plane work items shaped like issues (plane.mjs), so agent.mjs
+// requests, and work items shaped like issues (workitems.mjs), so agent.mjs
 // (an agent's tick) and sweep.mjs (the regular check) decide the same way. No
 // network here.
 
-// A work item is ready to take in Plane's Todo or In Progress, the `unstarted`
-// and `started` state groups. In Progress with nobody on it and no PR open is
+// A work item is ready to take in Todo or In Progress, the `unstarted` and
+// `started` stages. In Progress with nobody on it and no PR open is
 // work an agent let go of; Backlog is not ready yet.
 export const READY_STAGES = ['unstarted', 'started'];
 export const EPIC = 'kind/epic';
@@ -117,9 +117,10 @@ export const claimWinner = (item) => providers(item)[0] ?? null;
 
 export const isValidProvider = (p) => /^[a-z0-9][a-z0-9-]*$/.test(p ?? '');
 
-// A work item's key (`COUCHYUX-12`) or a GitHub number (`#1680`), as a pull
-// request or a description writes it. Numbers are what PRs opened before the
-// work moved to Plane, and descriptions copied from GitHub, still say.
+// A work item's key (`COU-12`, or `COUCHYUX-12` from before the move to
+// Linear) or a GitHub number (`#1680`), as a pull request or a description
+// writes it. Numbers are what PRs opened before the work left GitHub issues,
+// and descriptions copied from GitHub, still say.
 const KEY_RE = String.raw`[A-Z][A-Z0-9]*-\d+`;
 const refsIn = (text) => [...(text ?? '').matchAll(new RegExp(String.raw`#(\d+)|\b(${KEY_RE})\b`, 'g'))].map((m) => (m[1] ? Number(m[1]) : m[2]));
 
@@ -168,13 +169,13 @@ export function needsQA(item) {
 }
 
 const PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3, none: 4 };
-/** Plane's priority as a rank, urgent first; an item without one ranks with `none`. */
+/** The tracker's priority as a rank, urgent first; an item without one ranks with `none`. */
 export const priorityRank = (item) => PRIORITY_RANK[item.priority] ?? PRIORITY_RANK.none;
 
 /**
  * Which open items each open item blocks, from the "Blocked by" lines of
  * their descriptions: Map from an item's number to the Set of numbers waiting
- * on it. Read from the bodies already in hand, so it costs no request; Plane's
+ * on it. Read from the bodies already in hand, so it costs no request; the tracker's
  * relations are added per item by the caller (`downstream`'s `extra`).
  */
 export function blockGraph(issues) {

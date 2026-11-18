@@ -2,7 +2,7 @@
 
 Several coding agents (Claude, Codex, Grok…, sometimes more than one of each)
 work in the getcouchy repositories at once. They can't message each other, so
-Plane and GitHub are the only shared state: the work is in Plane, the pull
+Linear and GitHub are the only shared state: the work is in Linear, the pull
 requests are on GitHub, labels on both say whose turn it is, and this file is
 the protocol every agent follows, whatever its provider.
 
@@ -14,24 +14,29 @@ win for that repository.
 
 ## Where the work is
 
-**Work items are in Plane** (plane.home, workspace `couchy`). The work for
-getcouchy/couchy and getcouchy/couchy-agent is in project **COUCHYUX**, and
-for getcouchy/agent-runner in **RUNNER**. A work item is named by its key,
-`COUCHYUX-12`. It belongs to its project's first repository (getcouchy/couchy
-for COUCHYUX) unless a `repo/<name>` label (`repo/couchy-agent`) or the GitHub
-issue it was copied from names another. Modules are the epics; the current
-cycle is the sprint.
+**Work items are in Linear** (https://linear.app/couchy, workspace `couchy`).
+The work for getcouchy/couchy, getcouchy/couchy-agent and
+getcouchy/agent-runner is in one team, **Couchy** (`COU`). A work item is a
+Linear issue, named by its key, `COU-12`. It belongs to getcouchy/couchy
+unless a `repo/<name>` label (`repo/couchy-agent`, `repo/agent-runner`) names
+another. Projects are the epics; the team's current cycle is the sprint.
+
+The work moved here from Plane. An old Plane key (`COUCHYUX-12`, `RUNNER-3`)
+or the number of the GitHub issue an item was copied from still reaches the
+item (`moved.json` maps each to its `COU` key), so a PR or description that
+names one needs no change. Write `COU` keys from now on.
 
 **Pull requests stay on GitHub**, and so do their reviews, checks and labels.
 GitHub's issues are not the swarm's any more: don't read the queue there,
 don't open issues there, and don't close or edit the ones that are left.
-Every open one was copied into Plane, and a work item copied from one carries
-a link back to it.
+Every open one was copied into Linear, and a work item copied from one
+carries a link back to it.
 
-The tools read `PLANE_BASE_URL`, `PLANE_API_TOKEN` and `PLANE_WORKSPACE`. An
-agent without the tools uses Plane's API (`/api/v1/workspaces/couchy/...`,
-header `X-API-Key`) or its MCP server with the same token. A sandbox that
-can't reach Plane can review and fix pull requests, but takes no work item.
+The tools read `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` (README.md has
+the others). An agent without the tools uses Linear's GraphQL API
+(`https://api.linear.app/graphql`, header `Authorization: Bearer <token>`, or
+the bare key for a personal one) or the Linear MCP server. A sandbox that
+can't reach Linear can review and fix pull requests, but takes no work item.
 
 What a work item's state means here:
 
@@ -39,10 +44,10 @@ What a work item's state means here:
 | --- | --- |
 | Backlog | not ready: being shaped, or waiting on the owner's approval |
 | Todo | ready for an agent to take |
-| In Progress | an agent has it, or a pull request for it is open; with neither, it is ready again |
+| In Progress, In Review | an agent has it, or a pull request for it is open; with neither, it is ready again |
 | QA | a pull request that closes it merged, and the owner is walking its acceptance criteria; no agent takes it, and it blocks nothing |
 | Done | a pull request that closes it merged, and it needed no QA or passed it |
-| Cancelled | not doing it |
+| Canceled | not doing it |
 
 The owner moves work from Backlog to Todo; that is the approval. The tools
 move it to In Progress when an agent claims it, and the sweep keeps it there
@@ -106,7 +111,7 @@ over `swarm/pr` when a PR carries both.
 
 ## The labels
 
-Every label this protocol owns starts with `swarm/`, in Plane and on GitHub
+Every label this protocol owns starts with `swarm/`, in Linear and on GitHub
 alike. Anything else on a work item or a PR (`area/*`, `couchy-ux/*`,
 `conflicts-with-main`, `changelog/none`) belongs to the product or CI.
 
@@ -136,8 +141,8 @@ names, and the sweep renames any it finds, but write only the new ones.
 The swarm works in **getcouchy/couchy** (the app and its API) and
 **getcouchy/couchy-agent** (the agent that runs beside ComfyUI). The same
 labels mean the same things in both, and both repositories' work is in
-COUCHYUX. A work item for one is often blocked by one for the other: Plane's
-"blocked by" relation says so, or its description ("Blocked by COUCHYUX-40").
+COU. A work item for one is often blocked by one for the other: Linear's
+"blocked by" relation says so, or its description ("Blocked by COU-40").
 
 A tick covers the repositories its scheduler gives it: the ones its prompt
 names, which with a token are `AGENT_REPOS` (default: the repository you work
@@ -149,8 +154,7 @@ repository its work item belongs to, and follows that repository's own
 `AGENTS.md` for the rest.
 
 A tick can reach only the repositories its sandbox was given. One it can't read
-it passes by, and a blocker in a Plane project it can't read counts as open,
-as the tool does. Today getcouchy/couchy's ticks have it as their home.
+it passes by. Today getcouchy/couchy's ticks have it as their home.
 
 ## Your tick
 
@@ -221,11 +225,11 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    label, is not `kind/epic` or `swarm/needs-human`, has no open blockers, and
    that you can take (see "What you may take") and that is not waiting for
    shaping (`swarm/groom` or `swarm/design`), taken in the order "Focus"
-   gives. Nothing outside focus is started. Lock it, then build it. A work item's blockers are the items Plane's
+   gives. Nothing outside focus is started. Lock it, then build it. A work item's blockers are the items Linear's
    "blocked by" relation names, and those its description names after
-   "Blocked by" (`COUCHYUX-40`, or `#640` for the GitHub issue a work item was
-   copied from); it is blocked while any of them is open, or is in a project
-   you can't read. A GitHub issue that no work item was copied from was
+   "Blocked by" (`COU-40`, an old key like `COUCHYUX-40`, or `#640` for the
+   GitHub issue a work item was copied from); it is blocked while any of them
+   is open. A GitHub issue that no work item was copied from was
    closed before the work moved, and blocks nothing. Before any of those,
    take whatever your repository's `AGENTS.md` puts ahead of the queue.
 6. Otherwise there is nothing to do, even if work outside focus is ready.
@@ -252,7 +256,7 @@ minute 18 does not.
   does. If none fits, end the tick.
 - A work item too big for a whole tick is never a reason to skip it forever.
   At the start of a tick, take it and build the first slice that fits, as a
-  PR that says `Part of COUCHYUX-<n>`; the next tick builds the next slice.
+  PR that says `Part of COU-<n>`; the next tick builds the next slice.
 - Past the limit, start nothing new. A job already under way carries on, up
   to the ceiling.
 
@@ -278,7 +282,7 @@ One thing carries over between the jobs of one tick: **you don't review a PR
 you opened or pushed to in this tick.** It needs a session that comes to it
 fresh; leave it for another agent or your next tick.
 
-With a GitHub token and a Plane token, every job `next` prints carries the command to run when it
+With a GitHub token and Linear credentials, every job `next` prints carries the command to run when it
 is done (its `then` field) and `minutesToCeiling`, the time you have left to
 judge the next job against. `more` answers with the next job or with why the
 tick is over. It first takes your label off what you were on, since that job
@@ -287,9 +291,9 @@ judge that it fits, run `claim <number>` yourself. Pass `more`
 `--wrote=<PR numbers>` for the PRs you opened or pushed to this tick, and run
 `finish` when the tick ends without a last `more`.
 
-With both tokens, one command does the choosing and the claiming and prints
+With both, one command does the choosing and the claiming and prints
 the job as JSON, with the `repo` it is in. A work item's job names it by key
-(`"issue": "COUCHYUX-12"`) with its `url`; a PR's by number:
+(`"issue": "COU-12"`) with its `url`; a PR's by number:
 
 ```bash
 AGENT_NAME=codex node ../swarm/agent.mjs next
@@ -297,7 +301,7 @@ AGENT_NAME=codex node ../swarm/agent.mjs next
 
 `AGENT_CAN=ios-sim,design` lists what your sandbox has (see below), and
 `next --look` chooses without locking. `claim <work item or PR>` and
-`release <work item or PR> "why"` do one step each: `claim COUCHYUX-12` for a
+`release <work item or PR> "why"` do one step each: `claim COU-12` for a
 work item, `claim 57` for a PR, and `claim getcouchy/couchy-agent#57` for a PR
 outside your home repository. Hand a work item or PR off with
 `needs-human <work item or PR> "<question>"`, or a PR with
@@ -307,29 +311,29 @@ works, and the sweep still sees it.
 
 ### By hand
 
-An agent without the tools follows the same steps with what it has: Plane's
+An agent without the tools follows the same steps with what it has: Linear's
 API or MCP server for work items, its GitHub tools for pull requests. A
-Claude cloud session can't reach Plane, so it takes no work item and does
+Claude cloud session that can't reach Linear takes no work item and does
 only the pull request steps (1 to 4).
 
 - **Lock:** read the labels of the work item or PR. If it has a `swarm/agent/*`
-  label, leave it. Otherwise add yours (in Plane a work item's labels are
-  written as one list: read it, add yours, write it back), then **read the
+  label, leave it. Otherwise add yours (in Linear add the one label,
+  `issueAddLabel`, rather than writing the whole list back), then **read the
   labels again**. If
   another agent's label appeared at the same moment, the alphabetically first
   name keeps it (`swarm/agent/claude` before `swarm/agent/claude-2` before
   `swarm/agent/codex`) and the other removes its own label and moves on.
 - **Unlock:** remove your label when you finish with the item, and from
   everything at the end of the tick.
-- **Heartbeat:** on the open work item labelled `swarm/desk` in your
-  project, keep one comment that
+- **Heartbeat:** on the open work item labelled `swarm/desk` that belongs
+  to your home repository, keep one comment that
   ends with `<!-- agent-heartbeat: <your name> -->`, and edit it each tick to say
   when you last ran. The sweep reports an agent whose comment goes stale.
 
 ## While you are on a work item
 
 - Open the pull request early, as a draft if need be, with
-  `Closes COUCHYUX-<n>` in its body (or `Part of COUCHYUX-<n>` for one slice
+  `Closes COU-<n>` in its body (or `Part of COU-<n>` for one slice
   of a large work item), a link to the work item, and the `swarm/pr` label.
   While that PR is open the work item is in progress there and is not offered
   as new work; the PR is what the next agent carries on. The sweep links the
@@ -342,7 +346,7 @@ only the pull request steps (1 to 4).
   queue.
 - A lock is only for the length of a tick. The sweep removes any that has
   been on for 90 minutes (`AGENT_CLAIM_MINUTES`), on a work item or a PR.
-- New work you find goes into Plane as a work item in Backlog, never as a
+- New work you find goes into Linear as a work item in Backlog, never as a
   GitHub issue. The owner decides when it is ready.
 
 ## Merging
@@ -428,21 +432,21 @@ Decide what you can. A question with a likely right answer is yours to answer:
 
 ## Focus
 
-The owner says what matters most with the project's **current cycle** (the
-sprint) in Plane, and the `swarm/focus` label on a single work item. A work
+The owner says what matters most with the team's **current cycle** (the
+sprint) in Linear, and the `swarm/focus` label on a single work item. A work
 item is in focus when it is in the sprint or carries the label, when it is a
-child of one that is (Plane's parent link, up to three levels down), or when
-one of those waits on it: its blockers, their blockers, and so on, so a chain
+sub-issue of one that is (Linear's parent link, up to three levels down), or
+when one of those waits on it: its blockers, their blockers, and so on, so a chain
 in the sprint is worked from its first open link. Naming a work item in a
-description ("Part of COUCHYUX-12", a list of next steps) does not put it in
+description ("Part of COU-12", a list of next steps) does not put it in
 focus.
 
 Step 5 starts only work in focus, in this order:
 
-1. **Priority**, as Plane has it: urgent, high, medium, low, then none.
+1. **Priority**, as Linear has it: urgent, high, medium, low, then none.
 2. **What waits on it**: between equal priorities, the item more open work is
    waiting on, counted down the whole chain: every item whose "Blocked by"
-   line or Plane "blocked by" relation names it, those that name them, and so
+   line or Linear "blocked by" relation names it, those that name them, and so
    on.
 3. Equal on both: any of them.
 
@@ -496,15 +500,15 @@ anything. Rewrite its description with `agent.mjs describe <key> <file.md>`
 holds, in this shape:
 
 - the problem or goal in a paragraph, with the spec, design and parent it
-  belongs to (`Part of COUCHYUX-12`, a couchy-design spec by path);
+  belongs to (`Part of COU-12`, a couchy-design spec by path);
 - `### Scope`: what to build, concretely enough to start on;
 - `### Not in this item`: what a reader might expect that belongs elsewhere;
 - `### Acceptance`: observable checks a reviewer can tick, citing any
   `web-ergonomics` rules by number for web work;
 - `### Verify`: how to show it works (the test, the smoke flow, the
   simulator flow);
-- `Blocked by COUCHYUX-…` when something must land first, also set as a
-  Plane relation (`agent.mjs blocked-by <key> <keys>`).
+- `Blocked by COU-…` when something must land first, also set as a
+  Linear relation (`agent.mjs blocked-by <key> <keys>`).
 
 Set the product labels it needs (`agent.mjs labels <key> +platform/web
 +area/app -area/api`): an `area/*`, the platform, and `swarm/needs/<thing>`
@@ -524,7 +528,7 @@ reviews and merges design PRs) that adds `features/<slug>/spec.md` from
 wireframe to PNG (`npx -y playwright screenshot --viewport-size "1440, 900"
 --full-page file://$PWD/<file>.html <file>.png`, or 390 × 844 for a phone
 frame) and attach the PNGs to the work item (`agent.mjs attach <key>
-<file.png>…`), so the owner can review in Plane. The groomed description
+<file.png>…`), so the owner can review in Linear. The groomed description
 points at the spec by path and at the PR. The spec's open questions go in
 the spec; a question the design can't proceed without is a
 `swarm/needs-human` on the work item, with the question, and the tick moves
@@ -560,7 +564,7 @@ it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
 `swarm/blocked` on the open work items that have an open blocker, moves
 work items with their pull requests (In Progress with a link while one is
 open, QA or Done once one that closes them merges), and it keeps the **Agent desk**
-work item in Plane current with whatever is overdue: a ready work item in focus
+work item in Linear current with whatever is overdue: a ready work item in focus
 no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
 labelled `swarm/needs-human` (with the work items it holds up, those in focus

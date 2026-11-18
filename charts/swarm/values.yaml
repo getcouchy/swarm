@@ -12,20 +12,16 @@ github:
   # "GitHub App").
   secretName: swarm-github-app
 
-plane:
-  # Secret holding the Plane API token (`api-key`), and optionally the API's
-  # origin (`base-url`) and the workspace slug (`workspace-slug`). Every job
-  # then gets PLANE_API_TOKEN, PLANE_BASE_URL and PLANE_WORKSPACE. The sweep
-  # needs them: the swarm's work items are in Plane. Empty gives no job any.
+linear:
+  # Secret holding the Linear OAuth app's `client-id` and `client-secret`
+  # (client credentials on), or a personal `api-key` instead. Every job then
+  # gets LINEAR_CLIENT_ID and LINEAR_CLIENT_SECRET (or LINEAR_API_KEY). The
+  # sweep needs them: the swarm's work items are in Linear. Empty gives no job
+  # any.
   secretName: ""
-  # Values here win over the Secret's `base-url` key.
-  baseUrl: ""
-  # The origin people open Plane at, for the links the jobs write; the API's
-  # origin when empty.
-  webUrl: ""
-  # owner/name=IDENTIFIER pairs: which Plane project holds each repository's
-  # work. Empty keeps the scripts' default (plane.mjs, DEFAULT_PROJECTS).
-  projects: ""
+  # owner/name=KEY pairs: which Linear team holds each repository's work.
+  # Empty keeps the scripts' default (linear.mjs, DEFAULT_TEAMS).
+  teams: ""
 
 metrics:
   # A Prometheus Pushgateway (http://host:9091). When set, the sweep and

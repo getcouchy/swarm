@@ -16,14 +16,14 @@
 // when SWARM_PUSHGATEWAY_URL is set.
 //
 // Needs GITHUB_TOKEN (pull requests and checks read, issues write for PR
-// labels) and GITHUB_REPOSITORY, and PLANE_BASE_URL and PLANE_API_TOKEN
-// (plane.mjs). DRY_RUN=true logs what it would change.
+// labels) and GITHUB_REPOSITORY, and the work item tracker's credentials
+// (linear.mjs). DRY_RUN=true logs what it would change.
 // DESK_COMMENTS=false leaves the comments out.
 
 import { pathToFileURL } from 'node:url';
 import { fromEnv } from './github.mjs';
 import { pushRun } from './metrics.mjs';
-import { planeFromEnv, tracker } from './plane.mjs';
+import { providerFromEnv, tracker } from './workitems.mjs';
 import { focusOf } from './tick.mjs';
 import {
   AGENT_PREFIX, BLOCKED, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, agentOf, canonical, claimWinner, closingIssues, fixReasons,
@@ -33,7 +33,7 @@ import {
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
 // description over 100 characters, and a refused label fails the sweep, so
-// the tests hold these to that. Work items' labels are made in Plane as they
+// the tests hold these to that. Work items' labels are made in the tracker as they
 // are first used.
 export const LABELS = [
   [`${AGENT_PREFIX}claude`, '5319e7', 'A Claude agent is working on this right now. A lock, not ownership; see PROTOCOL.md.'],
@@ -308,12 +308,12 @@ const LINKED = /<!-- swarm-linked: (.*?) -->/s;
 
 /**
  * Where the desk keeps what the next run reads back: an issue's body, or, on
- * a Plane work item, whose description drops HTML comments, the one desk
+ * a work item, whose description a person may edit by hand, the one desk
  * comment that carries the markers.
  */
 /**
  * What a work item waiting on a person holds up, for its desk line: the items
- * whose "Blocked by" line or Plane relation names it, those in focus marked,
+ * whose "Blocked by" line or tracker relation names it, those in focus marked,
  * and a count of what waits further down. '' when nothing does.
  */
 export function holdsUp(blocks, item, blocking, inFocus) {
@@ -327,7 +327,7 @@ export function holdsUp(blocks, item, blocking, inFocus) {
 const deskState = (desk, stateComment) => [desk?.body ?? '', stateComment?.body ?? ''].join('\n');
 const isMarker = (line) => /^<!-- (agent-desk-state|swarm-[a-z]+): /.test(line);
 
-/** The `item<pr` pairs already linked in Plane, kept in the desk so each link is added once. */
+/** The `item<pr` pairs already linked in the tracker, kept in the desk so each link is added once. */
 export function readLinked(body) {
   try {
     const list = JSON.parse(LINKED.exec(body ?? '')[1]);
@@ -454,10 +454,10 @@ export async function writeDesk(gh, { desk, stateComment = null, overdue, fixed,
   const stored = deskState(desk, stateComment);
   const counters = countLabelled(readCounters(stored), labelled);
   const body = deskBody(overdue, now, counters, { comments, linked });
-  // In Plane the markers go in a comment of their own; a GitHub issue keeps them in its body.
-  const plane = Boolean(gh.findIssue);
+  // On a work item the markers go in a comment of their own; a GitHub issue keeps them in its body.
+  const workItem = Boolean(gh.findIssue);
   const lines = body.split('\n');
-  const shown = plane ? lines.filter((l) => !isMarker(l)).join('\n').trimEnd() : body;
+  const shown = workItem ? lines.filter((l) => !isMarker(l)).join('\n').trimEnd() : body;
   const state = ['The Agent sweep reads this back on its next run; don\'t edit it.', '', ...lines.filter(isMarker)].join('\n');
   let seen = [];
   if (desk) {
@@ -471,7 +471,7 @@ export async function writeDesk(gh, { desk, stateComment = null, overdue, fixed,
     desk = await gh.createIssue('Agent desk', shown, [DESK]);
     if (!desk) return counters; // dry run
   }
-  if (plane) {
+  if (workItem) {
     if (stateComment) await gh.editComment(stateComment.id, state);
     else await gh.comment(desk.number, state);
   }
@@ -524,7 +524,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const startedAt = Date.now();
   const hours = (name, dflt) => Number(process.env[name] || dflt);
   const github = fromEnv();
-  const gh = tracker(github, planeFromEnv(github.repo));
+  const gh = tracker(github, await providerFromEnv(github.repo));
   // Old names first, so ensureLabel doesn't create today's label beside one that only needs renaming.
   const renamed = await migrateLabels(gh);
   for (const line of renamed) console.log(`renamed: ${line}`);

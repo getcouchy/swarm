@@ -28,10 +28,10 @@ instructions to every scheduled tick, as if they were in your prompt.
    for your name.
 5. If the sandbox has the `COUCHY_BOT_*` variables, run
    `eval "$(node ../swarm/bots.mjs env)"` and `node ../swarm/bots.mjs git-setup`.
-   The work items are in Plane (PROTOCOL.md, "Where the work is"); the
-   sandbox's `PLANE_BASE_URL`, `PLANE_API_TOKEN` and `PLANE_WORKSPACE` reach
-   it. With those and a GitHub token, drive the tick from the `<repo>`
-   checkout with `GITHUB_REPOSITORY=<repo> AGENT_REPOS=<repo> AGENT_NAME=<name> node ../swarm/agent.mjs next`
+   The work items are in Linear (PROTOCOL.md, "Where the work is"); the
+   sandbox's `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` reach it. With
+   those and a GitHub token, drive the tick from the `<repo>` checkout
+   with `GITHUB_REPOSITORY=<repo> AGENT_REPOS=<repo> AGENT_NAME=<name> node ../swarm/agent.mjs next`
    / `more` / `finish`. Otherwise follow PROTOCOL.md, "By hand", with the
    tools you have. Never use GitHub issues: not to find work, not to file it.
 
@@ -43,8 +43,8 @@ shaping tick" (PROTOCOL.md, "Shaping ticks"; set `AGENT_ROLE=shape`). A
 shaping tick that takes a `swarm/design` job also clones
 getcouchy/couchy-design beside `<repo>` (once, with the same care as step 2)
 and opens its design PR there; that is the one other repository it works in. Work in `<repo>` only: it is your home
-repository, and your heartbeat goes on the open `swarm/desk` work item in its
-Plane project. Take only work items that belong to `<repo>`.
+repository, and your heartbeat goes on the open `swarm/desk` work item that
+belongs to it. Take only work items that belong to `<repo>`.
 
 A regular tick: fix `swarm/pr` PRs that need it, keep auto-merge right,
 review, carry on unfinished drafts, then start one new work item from Todo,

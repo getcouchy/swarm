@@ -100,12 +100,12 @@
         }
       },
       {
-        "name": "plane",
+        "name": "tracker",
         "type": "constant",
         "hide": 2,
-        "label": "Plane",
-        "description": "Plane's web origin and workspace, which work item links open under.",
-        "query": "https://plane.home/couchy"
+        "label": "Tracker",
+        "description": "The work item tracker's workspace URL, which work item links open under.",
+        "query": "https://linear.app/couchy"
       }
     ]
   },
@@ -768,7 +768,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "max by (repo, item, type, url) (max_over_time({service=\"tick-runner\", agent=~\"$agent\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | label_format url=`{{ if .key }}$plane/browse/{{ .key }}/{{ else }}https://github.com/{{ .repo }}/pull/{{ .item }}{{ end }}` | label_format at_s=`{{ toDate \"2006-01-02T15:04:05Z07:00\" .at | unixEpoch }}` | unwrap at_s | __error__=\"\" [$__range])) * 1000",
+          "expr": "max by (repo, item, type, url) (max_over_time({service=\"tick-runner\", agent=~\"$agent\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | label_format url=`{{ if .key }}$tracker/issue/{{ .key }}{{ else }}https://github.com/{{ .repo }}/pull/{{ .item }}{{ end }}` | label_format at_s=`{{ toDate \"2006-01-02T15:04:05Z07:00\" .at | unixEpoch }}` | unwrap at_s | __error__=\"\" [$__range])) * 1000",
           "queryType": "instant"
         },
         {

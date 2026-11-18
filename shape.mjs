@@ -1,11 +1,10 @@
 // The commands a shaping tick works a work item with (PROTOCOL.md, "Shaping
 // ticks"), and the two any tick reads one with: `show` and `images`. Each gets
-// the work item's tracker (plane.mjs) and returns what agent.mjs prints.
+// the work item's tracker (workitems.mjs) and returns what agent.mjs prints.
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
-import { htmlToText } from './plane.mjs';
 import { AGENT_PREFIX, DESIGN, GROOM, NS, SHAPED, labelNames, providers } from './rules.mjs';
 
 export const SHAPE_COMMANDS = ['show', 'images', 'describe', 'create', 'blocked-by', 'labels', 'attach', 'shaped'];
@@ -69,7 +68,7 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
       description: item.body,
       attachments: await client.attachments(key),
       children: children.map((k) => ({ key: k, title: client.seen?.(k)?.title ?? null })),
-      comments: comments.map((c) => ({ at: c.created_at, text: htmlToText(c.body) })),
+      comments: comments.map((c) => ({ at: c.created_at, text: c.body })),
       then: `Images in the description and attachments: agent.mjs images ${key}`,
     };
   }

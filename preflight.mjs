@@ -53,7 +53,7 @@ export function sync(git, { main = 'main', remote = 'origin' } = {}) {
 /**
  * What a checkout that was left alone most likely holds, so the agent finishes
  * it instead of pulling over it: the open PR for its branch, else a work item
- * this agent holds that has no PR yet. pulls, issues: as from plane.mjs's tracker().
+ * this agent holds that has no PR yet. pulls, issues: as from workitems.mjs's tracker().
  */
 export function likelyWork({ branch, dirty }, { me, pulls = [], issues = [], linked = new Map() }) {
   const pr = pulls.find((p) => p.head?.ref === branch);

@@ -1,10 +1,10 @@
 // One agent's tick (see PROTOCOL.md): what should this agent do next? In
 // order: fix a pull request that needs it, keep auto-merge right, review,
 // carry on unfinished work, then start one ready work item. Takes a client
-// from plane.mjs's tracker() (pull requests on GitHub, work items in Plane),
+// from workitems.mjs's tracker() (pull requests on GitHub, work items in the tracker),
 // so tests pass a fake.
 
-import { isKey } from './plane.mjs';
+import { isKey } from './workitems.mjs';
 import { likelyWork } from './preflight.mjs';
 import {
   AGENT_PREFIX, DESK, FOCUS, REVIEWED, blockGraph, closingIssues, downstream, partOfIssues, priorityRank, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
@@ -250,9 +250,9 @@ export async function focusOf(gh, open) {
 }
 
 /**
- * The order to start claimable work items in: Plane priority, urgent first;
+ * The order to start claimable work items in: priority, urgent first;
  * then the one more open work waits on, counted down the whole chain of
- * "Blocked by" lines and Plane's blocking relations. Items equal on both keep
+ * "Blocked by" lines and the tracker's blocking relations. Items equal on both keep
  * the order they came in.
  */
 export async function startOrder(gh, candidates, open) {
