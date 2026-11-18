@@ -64,7 +64,7 @@ a Plane token, so they can run outside CI. [`charts/swarm`](charts/swarm) is a H
 them (and scripts of your own) as Kubernetes CronJobs under a GitHub App:
 
 ```sh
-helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.3.1 \
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.3.2 \
   -n swarm --set github.repository=<owner>/<repo> --set plane.secretName=plane
 ```
 
