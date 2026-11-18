@@ -830,7 +830,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "{service=\"tick-runner\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | label_format hash_item=`#{{ .item }}` | (hash_item=~\"(?i)#?${item:regex}\" or (work_item!=\"\" and work_item=~\"(?i)${item:regex}\")) | line_format `{{ printf \"%-10s\" .agent }} {{ printf \"%-11s\" .tick_item }} {{ if .key }}{{ .key }}{{ else }}#{{ .item }}{{ end }}{{ if .title }} {{ .title }}{{ end }}{{ if .task }}  [{{ .task }}]{{ end }}{{ if .work_item }}  for {{ .work_item }}{{ end }}{{ if .pulls }}  PRs {{ .pulls }}{{ end }}{{ if .seconds }}  {{ div .seconds 60 }}m{{ mod .seconds 60 }}s{{ end }}`"
+          "expr": "{service=\"tick-runner\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | label_format hash_item=`#{{ .item }}` | hash_item=~\"(?i)#?${item:regex}\" or (work_item!=\"\" and work_item=~\"(?i)${item:regex}\") | line_format `{{ printf \"%-10s\" .agent }} {{ printf \"%-11s\" .tick_item }} {{ if .key }}{{ .key }}{{ else }}#{{ .item }}{{ end }}{{ if .title }} {{ .title }}{{ end }}{{ if .task }}  [{{ .task }}]{{ end }}{{ if .work_item }}  for {{ .work_item }}{{ end }}{{ if .pulls }}  PRs {{ .pulls }}{{ end }}{{ if .seconds }}  {{ div .seconds 60 }}m{{ mod .seconds 60 }}s{{ end }}`"
         }
       ],
       "gridPos": {
