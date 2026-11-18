@@ -9,9 +9,9 @@ being given access to it, so a tick needs access only to the repository it
 works in.
 
 `agent.mjs`, `tick.mjs` and `sweep.mjs` run the protocol. The work items they
-take are in Plane (`plane.mjs`) and the pull requests on GitHub
-(`github.mjs`). `bots.mjs` gives each agent a GitHub identity of its own.
-Tests: `npm test` (`node --test`, no dependencies).
+take are in Linear (`linear.mjs`, behind `workitems.mjs`) and the pull
+requests on GitHub (`github.mjs`). `bots.mjs` gives each agent a GitHub
+identity of its own. Tests: `npm test` (`node --test`, no dependencies).
 
 ## Using it in a tick
 
@@ -22,14 +22,27 @@ git clone --depth 1 https://github.com/getcouchy/swarm ../swarm
 AGENT_NAME=claude-3 node ../swarm/agent.mjs next
 ```
 
-It needs `GITHUB_TOKEN`, and Plane's `PLANE_BASE_URL` (the API's origin) and
-`PLANE_API_TOKEN`. `PLANE_WORKSPACE` (default `couchy`), `PLANE_WEB_URL` (the
-origin in the links it writes, default `PLANE_BASE_URL`) and `PLANE_PROJECTS`
-(which project holds each repository's work, `owner/name=IDENTIFIER` pairs;
-the default is in `plane.mjs`) are optional. Node trusts only its own CA list
-unless `NODE_USE_SYSTEM_CA=1`, which a Plane behind a private CA needs. Plane
-allows a key 60 requests a minute; the tools wait out the minute rather than
-fail, so give the ticks and the sweep keys of their own if they queue.
+It needs `GITHUB_TOKEN`, and a way into Linear. `LINEAR_CLIENT_ID` and
+`LINEAR_CLIENT_SECRET` are those of an OAuth app with client credentials on
+(Couchybot): the swarm acts as the app, and mints its 30-day token and caches
+it in `LINEAR_TOKEN_FILE` (default `$XDG_CACHE_HOME/swarm/linear-token.json`,
+or under `~/.cache`). `LINEAR_ACCESS_TOKEN`, a token minted elsewhere, or
+`LINEAR_API_KEY`, a personal key, does instead; with a personal key the swarm
+acts as that person. `LINEAR_TEAMS` (which team holds each repository's
+work, `owner/name=KEY` pairs; default `getcouchy/couchy=COU,getcouchy/couchy-agent=COU,getcouchy/agent-runner=COU`)
+and `LINEAR_QA_STATE` (the state that is QA, default `QA`) are optional. A
+team's items belong to the first repository listed for it, unless a
+`repo/<name>` label names another. `DRY_RUN=true` logs writes without making
+them. Linear allows an OAuth app 5,000 requests an hour; the tools wait out
+the limit rather than fail.
+
+`WORK_ITEMS` picks the tracker (default `linear`). Another tracker is a
+provider that implements the interface in `workitems.mjs`, registered there.
+
+`moved.json` maps what items were called before the move to Linear (an old
+Plane key, `COUCHYUX-12`, or `owner/name#n` for the GitHub issue one was
+copied from) to their `COU` keys, so a PR body or description that names one
+still reaches the item.
 
 Every command checks its clone against `origin/main` and runs `main`'s copy if
 they differ, so an old clone never applies old rules.
@@ -38,7 +51,7 @@ With `TICK_EVENTS_FILE` set, each `agent.mjs` command that runs to completion
 appends one JSON line to that file: the job it offered, the locks it took or
 released and the handoffs it made (each with its repository, number, `issue`
 or `pull` and title; a work item also with its `key`, its number being its
-sequence number in Plane, and `pulls`, the open pull requests that close it or
+sequence number in Linear, and `pulls`, the open pull requests that close it or
 are part of it; a pull request also with `workItem`, the key its body closes or
 is part of), and the GitHub requests left on the token. The tick runner in getcouchy/agent-runner
 sets it for each run and turns the lines into live metrics; how it reads them
@@ -60,16 +73,17 @@ touches a required check.
 ## Running the housekeeping
 
 `reviewed.mjs` needs only a GitHub token and the API, and `sweep.mjs` that and
-a Plane token, so they can run outside CI. [`charts/swarm`](charts/swarm) is a Helm chart that runs
+Linear credentials, so they can run outside CI. [`charts/swarm`](charts/swarm) is a Helm chart that runs
 them (and scripts of your own) as Kubernetes CronJobs under a GitHub App:
 
 ```sh
-helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.3.2 \
-  -n swarm --set github.repository=<owner>/<repo> --set plane.secretName=plane
+helm upgrade --install swarm oci://ghcr.io/getcouchy/charts/swarm --version 0.4.0 \
+  -n swarm --set github.repository=<owner>/<repo> --set linear.secretName=linear
 ```
 
 Its [README](charts/swarm/README.md) has the GitHub App and the Secrets to
-create first.
+create first: `linear.secretName` names a Secret with the Linear app's
+`client-id` and `client-secret`, and `linear.teams` sets `LINEAR_TEAMS`.
 
 Both scripts can push what they find to a Prometheus Pushgateway, for a
 dashboard and alerts in place of reading the Agent desk:
