@@ -28,7 +28,7 @@
 // A shaping tick also has describe, create, blocked-by, labels, attach and
 // shaped (shape.mjs; PROTOCOL.md, "Shaping ticks").
 //
-// Work items are in Plane and pull requests on GitHub (plane.mjs, github.mjs).
+// Work items are in the tracker (workitems.mjs) and pull requests on GitHub (github.mjs).
 // A tick covers every repository in AGENT_REPOS (default: GITHUB_REPOSITORY and
 // getcouchy/couchy-agent), and each job names its `repo`. For a PR in another
 // repository than the first, write it with the repository:
@@ -39,7 +39,7 @@
 // swarm/needs/* labels ("ios-sim,design"); AGENT_ROLE=focus runs a builder tick
 // (PROTOCOL.md, "Builder ticks"), AGENT_ROLE=shape a shaping tick ("Shaping ticks").
 // Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy), and
-// PLANE_BASE_URL and PLANE_API_TOKEN (plane.mjs has the rest).
+// the work item tracker's credentials (Linear's: linear.mjs).
 // TICK_EVENTS_FILE, when set, gets one JSON line per command that ran: the
 // job, the locks taken and released, the handoff, the GitHub requests left
 // (commands.mjs).
@@ -49,7 +49,7 @@ import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run, UsageError, writeEvent } from './commands.mjs';
 import { reposFromEnv } from './github.mjs';
-import { planeFromEnv, tracker } from './plane.mjs';
+import { providerFromEnv, tracker } from './workitems.mjs';
 import { syncHere, toolsFromMain } from './preflight.mjs';
 import { isValidProvider } from './rules.mjs';
 
@@ -82,7 +82,7 @@ if (!process.env.AGENT_NO_SYNC && !process.env.AGENT_TOOLS_FROM_MAIN) {
   }
 }
 
-const clients = reposFromEnv().map((gh) => tracker(gh, planeFromEnv(gh.repo)));
+const clients = await Promise.all(reposFromEnv().map(async (gh) => tracker(gh, await providerFromEnv(gh.repo))));
 
 let checkout = null;
 if (cmd === 'next' && !process.env.AGENT_NO_SYNC) {

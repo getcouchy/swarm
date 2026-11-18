@@ -1,9 +1,9 @@
-// What each agent.mjs command does, given one plane.mjs tracker() per
+// What each agent.mjs command does, given one workitems.mjs tracker() per
 // repository (tests pass fakes), and the line it adds to TICK_EVENTS_FILE.
 // agent.mjs reads the environment and the checkout, then runs one of these.
 
 import { appendFileSync } from 'node:fs';
-import { isKey } from './plane.mjs';
+import { isKey } from './workitems.mjs';
 import { closingIssues, HOLD, linkedPulls, NEEDS_HUMAN, partOfIssues } from './rules.mjs';
 import { SHAPE_COMMANDS, SHAPE_USAGE, ShapeUsage, shapeCommand } from './shape.mjs';
 import { claim, firstJob, heartbeat, mayContinue, nextAcross, release, releaseAll } from './tick.mjs';
@@ -91,10 +91,7 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
   // "COUCHYUX-12" is a work item; "57" a pull request in the home repository,
   // "getcouchy/couchy-agent#57" one in its own.
   const ref = (text) => {
-    if (isKey(text)) {
-      const project = text.split('-')[0];
-      return { client: clients.find((c) => c.plane?.project === project) ?? gh, number: text };
-    }
+    if (isKey(text)) return { client: clients.find((c) => c.items?.owns(text)) ?? gh, number: text };
     const m = /^(?:([\w.-]+\/[\w.-]+)#)?(\d+)$/.exec(text ?? '');
     const client = m && clients.find((c) => c.repo === (m[1] ?? gh.repo));
     if (!client) throw new UsageError(`${cmd} needs a work item's key (COUCHYUX-12), a PR number, or owner/name#number for one of: ${clients.map((c) => c.repo).join(', ')}.`);
