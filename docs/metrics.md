@@ -159,6 +159,10 @@ claimed or handed off is there too, with no time. A work item links to Plane
 under the dashboard's hidden `plane` constant (web origin and workspace), a
 pull request to GitHub. "Item timeline" lists everything done to the item typed
 into the Item box (`COUCHYUX-34`, `57` or `#57`), oldest first, and is empty
-while the box is. "Agent log" lists every line from the chosen agents' tick
+while the box is. A pull request's line carries `work_item`, the key its body
+closes or is part of, and a work item's line `pulls`, its open pull requests,
+so a key in the box also lists what was done to that work item's pull requests,
+and `| json | work_item="COUCHYUX-34"` in Explore is every pull request an
+agent touched for it. "Agent log" lists every line from the chosen agents' tick
 containers, the runner's own lines as written and item lines rewritten to read
 like the timeline; one agent over the span of a run is that run.

@@ -830,7 +830,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "{service=\"tick-runner\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | label_format hash_item=`#{{ .item }}` | hash_item=~\"(?i)#?${item:regex}\" | line_format `{{ printf \"%-10s\" .agent }} {{ printf \"%-11s\" .tick_item }} {{ if .key }}{{ .key }}{{ else }}#{{ .item }}{{ end }}{{ if .title }} {{ .title }}{{ end }}{{ if .task }}  [{{ .task }}]{{ end }}{{ if .seconds }}  {{ div .seconds 60 }}m{{ mod .seconds 60 }}s{{ end }}`"
+          "expr": "{service=\"tick-runner\"} |= `{\"tick_item\":` | json | __error__=\"\" | repo=\"$repository\" | label_format hash_item=`#{{ .item }}` | hash_item=~\"(?i)#?${item:regex}\" or (work_item!=\"\" and work_item=~\"(?i)${item:regex}\") | line_format `{{ printf \"%-10s\" .agent }} {{ printf \"%-11s\" .tick_item }} {{ if .key }}{{ .key }}{{ else }}#{{ .item }}{{ end }}{{ if .title }} {{ .title }}{{ end }}{{ if .task }}  [{{ .task }}]{{ end }}{{ if .work_item }}  for {{ .work_item }}{{ end }}{{ if .pulls }}  PRs {{ .pulls }}{{ end }}{{ if .seconds }}  {{ div .seconds 60 }}m{{ mod .seconds 60 }}s{{ end }}`"
         }
       ],
       "gridPos": {
@@ -863,7 +863,7 @@
             "type": "loki",
             "uid": "${loki}"
           },
-          "expr": "{service=\"tick-runner\", agent=~\"$agent\"} | json | line_format `{{ if .tick_item }}{{ printf \"%-10s\" .agent }} {{ printf \"%-11s\" .tick_item }} {{ if .key }}{{ .key }}{{ else }}{{ .repo }}#{{ .item }}{{ end }}{{ if .title }} {{ .title }}{{ end }}{{ if .task }}  [{{ .task }}]{{ end }}{{ if .seconds }}  {{ div .seconds 60 }}m{{ mod .seconds 60 }}s{{ end }}{{ else }}{{ __line__ }}{{ end }}` | drop __error__, __error_details__"
+          "expr": "{service=\"tick-runner\", agent=~\"$agent\"} | json | line_format `{{ if .tick_item }}{{ printf \"%-10s\" .agent }} {{ printf \"%-11s\" .tick_item }} {{ if .key }}{{ .key }}{{ else }}{{ .repo }}#{{ .item }}{{ end }}{{ if .title }} {{ .title }}{{ end }}{{ if .task }}  [{{ .task }}]{{ end }}{{ if .work_item }}  for {{ .work_item }}{{ end }}{{ if .pulls }}  PRs {{ .pulls }}{{ end }}{{ if .seconds }}  {{ div .seconds 60 }}m{{ mod .seconds 60 }}s{{ end }}{{ else }}{{ __line__ }}{{ end }}` | drop __error__, __error_details__"
         }
       ],
       "gridPos": {
