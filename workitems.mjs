@@ -66,6 +66,7 @@ import { FOCUS, bodyBlockers, labelNames, oldName } from './rules.mjs';
  * @property {(key: string) => Promise<{ blockedBy: Related[], blocking: Related[] }>} relations
  * @property {(key: string, kind: 'blocked_by' | 'blocking' | 'relates_to', keys: string[]) => Promise<void>} relate
  * @property {(key: string, url: string, title: string) => Promise<boolean>} addLink   false when already linked
+ * @property {(key: string) => Promise<{ url: string, title: string }[]>} links   what is linked to it (its PRs), uploads aside
  * @property {(item: { title: string, body: string, labels?: string[], parent?: string | null, priority?: Priority | null }) => Promise<WorkItem | null>} create   always in Backlog
  * @property {(key: string, change: { title?: string, body?: string }) => Promise<void>} update
  * @property {(key: string) => Promise<{ id: string, name: string, type: string, size: number | null }[]>} attachments   uploaded files only
@@ -79,7 +80,7 @@ import { FOCUS, bodyBlockers, labelNames, oldName } from './rules.mjs';
 /** Every method and field a provider has; providerContract checks each. */
 export const PROVIDER_METHODS = [
   'owns', 'all', 'get', 'seen', 'addLabel', 'removeLabel', 'setStage', 'comments', 'comment', 'ownsComment',
-  'editComment', 'labelEvents', 'relations', 'relate', 'addLink', 'create', 'update', 'attachments', 'attach',
+  'editComment', 'labelEvents', 'relations', 'relate', 'addLink', 'links', 'create', 'update', 'attachments', 'attach',
   'attachmentUrl', 'download', 'webUrl', 'rateLimitRemaining',
 ];
 
@@ -227,6 +228,7 @@ export function workItems(provider, { map = moved() } = {}) {
     relate: (ref, kind, keys) => provider.relate(key(ref), kind, keys.map(key)),
     find: (ref) => find(typeof ref === 'string' ? { key: ref } : { number: ref }),
     addLink: (ref, url, title) => provider.addLink(key(ref), url, title),
+    links: (ref) => provider.links(key(ref)),
     createIssue: (title, body, labels = [], { parent = null, priority = null } = {}) =>
       provider.create({ title, body, labels, parent: parent && key(parent), priority }),
     editIssue: (ref, change) => provider.update(key(ref), change),
@@ -264,6 +266,7 @@ export function tracker(gh, provider, { map = moved() } = {}) {
     attachmentUrl: items.attachmentUrl,
     setStage: items.setStage,
     addLink: items.addLink,
+    links: items.links,
     findIssue: items.find,
     seen: items.seen,
     issue: (ref) => to(ref).issue(ref),

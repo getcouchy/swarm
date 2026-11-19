@@ -60,6 +60,12 @@ work out of QA but the owner, who moves it to Done when it passes, or back to
 Todo with a comment saying which criterion failed. Don't move a work item to
 QA or Done yourself.
 
+An item back in Todo from QA is not new work: what shipped stays, and you fix
+only what the owner's comment says failed, on a fresh branch, in a new PR that
+says `Closes <key>`. `next` tells you when an item came back (the job's
+`returned`: the merged PRs and the comments since); with no comment saying
+what failed, ask with `needs-human` rather than guess.
+
 ## Your name
 
 The prompt that wakes you names you: "run your tick as `claude-2`". That name
@@ -225,7 +231,9 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    label, is not `kind/epic` or `swarm/needs-human`, has no open blockers, and
    that you can take (see "What you may take") and that is not waiting for
    shaping (`swarm/groom` or `swarm/design`), taken in the order "Focus"
-   gives. Nothing outside focus is started. Lock it, then build it. A work item's blockers are the items Linear's
+   gives. Nothing outside focus is started. Lock it, read it with its
+   comments (`agent.mjs show <key>`), then build it; one back from QA gets
+   only the fix its feedback asks for (see "Where the work is"). A work item's blockers are the items Linear's
    "blocked by" relation names, and those its description names after
    "Blocked by" (`COU-40`, an old key like `COUCHYUX-40`, or `#640` for the
    GitHub issue a work item was copied from); it is blocked while any of them

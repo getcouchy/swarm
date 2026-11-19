@@ -366,6 +366,7 @@ export function linearClient({
         { input: { issueId: item.id, url, title } }, { write: true });
       return true;
     },
+    links: async (key) => (await attachmentsOf(await need(key))).filter((a) => !isUpload(a.url)).map((a) => ({ url: a.url, title: a.title })),
     create: async ({ title, body, labels = [], parent = null, priority = null }) => {
       const c = await context();
       const ids = [];

@@ -161,7 +161,7 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
     if (job) return job;
   }
   const mine = open.find((i) => providers(i).includes(me) && !linkedTo(linked, i).length && focused.of(i));
-  if (mine) return { job: 'implement', issue: mine.number, title: mine.title, ...url(mine), resumed: true, lock: mine.number, claimed: true };
+  if (mine) return { job: 'implement', issue: mine.number, title: mine.title, ...url(mine), resumed: true, lock: mine.number, claimed: true, ...await returnedFrom(gh, mine) };
 
   // 5. Then one ready work item, and only one in focus: with none claimable
   // the tick has nothing to start. Highest priority first; between equals, the one more
@@ -184,7 +184,7 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
   }
   for (const issue of await startOrder(gh, candidates, open)) {
     const job = await lock({ job: 'implement', issue: issue.number, title: issue.title, ...url(issue), labels: labelNames(issue), lock: issue.number, focus: focused.of(issue) });
-    if (job) return job; // else lost the race: the next one
+    if (job) return { ...job, ...await returnedFrom(gh, issue) }; // else lost the race: the next one
   }
   return { job: 'none', why: 'nothing in focus is claimable', skipped };
 }
@@ -267,6 +267,41 @@ export async function startOrder(gh, candidates, open) {
 
 const ORDER = ['fix', 'hold', 'merge', 'review', 'implement', 'shape'];
 const url = (item) => (item.html_url ? { url: item.html_url } : {});
+
+const PR_URL = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/;
+const AGENT_MARKER = /<!-- agent(?:-heartbeat)?: /;
+
+/**
+ * Whether a work item came back from QA: a merged PR closes it, yet it is
+ * open again, because the owner sent it back to Todo with a comment saying
+ * which criterion failed (PROTOCOL.md, "Where the work is"). Then the job
+ * carries `returned`: the PRs that shipped it, the people's comments since
+ * the last of them merged, and how to go on, so the agent fixes what failed
+ * rather than building the item again. {} for any other item. The merged PRs
+ * are found among the item's links: the sweep links each PR it follows.
+ */
+export async function returnedFrom(gh, item) {
+  if (!gh.links || !isKey(item.number)) return {};
+  const numbers = [...new Set((await gh.links(item.number))
+    .map((l) => PR_URL.exec(l.url ?? '')).filter((m) => m && m[1] === gh.repo).map((m) => Number(m[2])))];
+  const refs = refsOf(item);
+  const merged = [];
+  for (const n of numbers) {
+    const pr = await gh.pull(n);
+    if (pr?.merged_at && closingIssues(pr.body).some((r) => refs.includes(r))) merged.push({ pull: n, url: pr.html_url, merged_at: pr.merged_at });
+  }
+  if (!merged.length) return {};
+  merged.sort((a, b) => a.merged_at.localeCompare(b.merged_at));
+  const since = merged.at(-1).merged_at;
+  const feedback = (await gh.comments(item.number))
+    .filter((c) => c.created_at > since && !AGENT_MARKER.test(c.body ?? ''))
+    .map((c) => ({ at: c.created_at, text: c.body }));
+  const shipped = merged.map((p) => `#${p.pull}`).join(', ');
+  const how = feedback.length
+    ? `This came back from QA: ${shipped} shipped it, and the feedback says what failed. Fix only that, on a fresh branch from main, in a new PR that says "Closes ${item.number}"; don't build again what already shipped.`
+    : `This came back from QA after ${shipped} merged, but no comment since says what failed. Don't guess: ask with agent.mjs needs-human ${item.number} "<which criterion failed?>".`;
+  return { returned: { pulls: merged, feedback, how } };
+}
 
 /**
  * `next` over several repositories (couchy and couchy-agent): the job that
