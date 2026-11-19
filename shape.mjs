@@ -28,7 +28,7 @@ const TYPES = {
   '.svg': 'image/svg+xml', '.pdf': 'application/pdf', '.html': 'text/html', '.md': 'text/markdown', '.txt': 'text/plain',
 };
 const EXT = Object.fromEntries(Object.entries(TYPES).map(([e, t]) => [t, e]));
-const IMAGE = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+const IMAGE = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
 
 const opt = (args, name) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const positional = (args) => args.filter((a) => !a.startsWith('--'));
@@ -78,19 +78,28 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
     const to = opt(args, 'dir') ?? join(dir, 'swarm-images', key);
     mkdir(to);
     const files = [];
-    const save = async (url, name) => {
+    const done = new Set();
+    const save = async (url, name, source) => {
+      if (done.has(url)) return;
+      done.add(url);
       try {
         const { type, bytes } = await client.download(url);
         const ext = extname(name) || EXT[type.split(';')[0]] || '';
         const path = join(to, `${String(files.length + 1).padStart(2, '0')}-${basename(name, extname(name)).replace(/[^\w.-]+/g, '-')}${ext}`);
         writeFile(path, bytes);
-        files.push({ from: url, path });
+        files.push({ from: url, source, path });
       } catch (e) {
-        files.push({ from: url, error: e.message });
+        files.push({ from: url, source, error: e.message });
       }
     };
-    for (const [, url] of item.body.matchAll(IMAGE)) await save(url, basename(new URL(url, 'https://x/').pathname) || 'image');
-    for (const a of await client.attachments(key)) await save(await client.attachmentUrl(key, a.id), a.name ?? a.id);
+    // An image's alt text is its file name when it has one (`![board.png](…)`), as an upload's is.
+    const nameOf = (alt, url) => (extname(alt) ? alt : basename(new URL(url, 'https://x/').pathname) || 'image');
+    for (const [, alt, url] of item.body.matchAll(IMAGE)) await save(url, nameOf(alt, url), 'description');
+    // The owner's feedback (a failed QA, say) often carries a screenshot.
+    for (const c of await client.comments(key)) {
+      for (const [, alt, url] of (c.body ?? '').matchAll(IMAGE)) await save(url, nameOf(alt, url), `comment ${c.created_at}`);
+    }
+    for (const a of await client.attachments(key)) await save(await client.attachmentUrl(key, a.id), a.name ?? a.id, 'attachment');
     return { key, dir: to, files, then: 'Read each path to see it.' };
   }
 
