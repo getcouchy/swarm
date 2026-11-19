@@ -67,6 +67,7 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
       labels: labelNames(item), parent: item.parent, blockers: await client.blockers(item),
       description: item.body,
       attachments: await client.attachments(key),
+      links: (await client.links?.(key)) ?? [],
       children: children.map((k) => ({ key: k, title: client.seen?.(k)?.title ?? null })),
       comments: comments.map((c) => ({ at: c.created_at, text: c.body })),
       then: `Images in the description and attachments: agent.mjs images ${key}`,

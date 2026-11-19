@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { DEFAULT_TEAMS, appToken, linearClient } from './linear.mjs';
 import { PROVIDER_METHODS, assertProvider, currentKey, isKey, parsePairs, tracker } from './workitems.mjs';
 import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from './rules.mjs';
-import { claim, focusOf } from './tick.mjs';
+import { claim, focusOf, next } from './tick.mjs';
 import { followPulls, readLinked, writeDesk } from './sweep.mjs';
 import { run } from './commands.mjs';
 
@@ -457,4 +457,55 @@ test('dry run: reads happen, writes are logged and not made', async () => {
   assert.deepEqual(fake.calls.filter((c) => c.startsWith('mutation')), []);
   assert.equal(logged.length, 2);
   assert.equal(fake.issues[0].stateId, 's-todo');
+});
+
+test('an item back from QA: the job says what shipped it and what the owner wrote since, so the agent fixes only that', async () => {
+  const fake = fakeLinear({ issues: [item(5, { sprint: true }), item(6, { sprint: true }), item(7, { sprint: true })] });
+  const p = client(fake);
+  // The sweep linked the PRs it followed; COU-5's closing PR merged, COU-6's PR was only part of it.
+  await p.addLink('COU-5', 'https://github.com/getcouchy/couchy/pull/60', 'PR #60: Couch rail');
+  await p.addLink('COU-5', 'https://github.com/getcouchy/other/pull/61', 'elsewhere');
+  await p.addLink('COU-6', 'https://github.com/getcouchy/couchy/pull/62', 'PR #62: part');
+  fake.comments.i5 = [
+    { id: 'c1', body: 'Before the merge.', createdAt: '2026-11-17T00:00:00Z', updatedAt: 'x' },
+    { id: 'c2', body: 'QA failed: criterion 3, the count shifts the tab width.', createdAt: '2026-11-18T10:00:00Z', updatedAt: 'x' },
+    { id: 'c3', body: 'Released by claude-1\n\n<!-- agent: claude-1 -->', createdAt: '2026-11-18T11:00:00Z', updatedAt: 'x' },
+  ];
+  const pulls = {
+    60: { number: 60, merged_at: '2026-11-17T12:00:00Z', body: 'Closes COUCHYUX-1', html_url: 'https://github.com/getcouchy/couchy/pull/60' },
+    62: { number: 62, merged_at: '2026-11-17T12:00:00Z', body: 'Part of COU-6', html_url: 'https://github.com/getcouchy/couchy/pull/62' },
+  };
+  const asked = [];
+  const gh = {
+    repo: 'getcouchy/couchy', openPulls: async () => [], requiredChecks: async () => [],
+    pull: async (n) => { asked.push(n); return pulls[n]; },
+  };
+  // COUCHYUX-1 is COU-1 in MAP; give COU-5 that name too, as moved.json would.
+  const map = { ...MAP, 'COUCHYUX-1': 'COU-5' };
+  const t5 = tracker(gh, client(fake, { map }), { map });
+  const job = await next(t5, { me: 'codex', doClaim: false });
+  assert.equal(job.issue, 'COU-5');
+  assert.deepEqual(job.returned.pulls, [{ pull: 60, url: 'https://github.com/getcouchy/couchy/pull/60', merged_at: '2026-11-17T12:00:00Z' }]);
+  assert.deepEqual(job.returned.feedback.map((f) => f.text), ['QA failed: criterion 3, the count shifts the tab width.'], 'only people\'s comments since the merge');
+  assert.match(job.returned.how, /Fix only that.*Closes COU-5/);
+  assert.deepEqual(asked, [60], 'a PR in another repository is not asked about');
+
+  // With no word on what failed, the agent asks rather than guesses.
+  fake.comments.i5 = fake.comments.i5.filter((c) => c.id !== 'c2');
+  const again = await next(tracker(gh, client(fake, { map }), { map }), { me: 'codex', doClaim: false });
+  assert.match(again.returned.how, /needs-human COU-5/);
+
+  // A PR that is only part of an item, or none at all: an ordinary job.
+  fake.issues.splice(0, 1);
+  const six = await next(tracker(gh, client(fake, { map }), { map }), { me: 'codex', doClaim: false });
+  assert.equal(six.issue, 'COU-6');
+  assert.equal(six.returned, undefined);
+});
+
+test('links: what is linked to an item, its uploads aside', async () => {
+  const fake = fakeLinear({ issues: [item(1)] });
+  const p = client(fake);
+  await p.addLink('COU-1', 'https://github.com/getcouchy/couchy/pull/60', 'PR #60: x');
+  fake.attachments.i1.push({ id: 'up', url: 'https://uploads.linear.app/w/board.png', title: 'board.png', metadata: {} });
+  assert.deepEqual(await p.links('COU-1'), [{ url: 'https://github.com/getcouchy/couchy/pull/60', title: 'PR #60: x' }]);
 });
