@@ -52,6 +52,22 @@ test('images: every image the description shows and every attachment, saved wher
   assert.deepEqual(written, out.files.map((f) => f.path));
 });
 
+test('images: a comment\'s screenshots too, named by their alt text, each image once', async () => {
+  const shot = 'https://uploads.linear.app/w/fa61?signature=x';
+  const c = fakeClient(item(), {
+    comments: [
+      { created_at: '2026-11-19T00:17:34Z', body: `QA failed: criterion 1.\n\n![image.png](${shot})` },
+      { created_at: '2026-11-19T01:00:00Z', body: `Same again: ![image.png](${shot})` },
+      { created_at: '2026-11-19T02:00:00Z', body: 'No picture.' },
+    ],
+  });
+  const out = await run('images', ['COU-7'], c, { dir: '/tmp/t', mkdir: () => {}, writeFile: () => {} });
+  assert.deepEqual(out.files.map((f) => [f.source, f.path]), [
+    ['description', '/tmp/t/swarm-images/COU-7/01-b.png'],
+    ['comment 2026-11-19T00:17:34Z', '/tmp/t/swarm-images/COU-7/02-image.png'],
+  ]);
+});
+
 test('changes need the lock; describe keeps the old description in a comment', async () => {
   const unlocked = fakeClient(item(['swarm/groom']), { files: { 'd.md': 'New.' } });
   await assert.rejects(run('describe', ['COU-7', 'd.md'], unlocked), (e) => e instanceof ShapeUsage && /claim it first/.test(e.message));
