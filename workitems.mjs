@@ -13,9 +13,12 @@ import { readFileSync } from 'node:fs';
 import { FOCUS, bodyBlockers, labelNames, oldName } from './rules.mjs';
 
 /**
- * @typedef {'backlog' | 'unstarted' | 'started' | 'qa' | 'completed' | 'cancelled'} Stage
+ * @typedef {'backlog' | 'unstarted' | 'started' | 'needs-human' | 'qa' | 'completed' | 'cancelled'} Stage
  *   Where a work item is. `qa` is its own stage whatever the tracker files it
  *   under: its PR has merged, so no agent takes it, and it blocks nothing.
+ *   `needs-human` is too: it waits on a person (an agent's needs-human), so no
+ *   agent takes it until the owner moves it on; it is open, and blocks what
+ *   waits on it.
  *
  * @typedef {'urgent' | 'high' | 'medium' | 'low' | 'none'} Priority
  *
@@ -55,7 +58,7 @@ import { FOCUS, bodyBlockers, labelNames, oldName } from './rules.mjs';
  * @property {() => Promise<WorkItem[]>} all   every open-or-closed item the tracker holds for any repository, read once
  * @property {(key: string) => Promise<WorkItem | null>} get   the item as the tracker has it now, never cached: claims are decided on it
  * @property {(key: string) => WorkItem | null} seen   the item as this client last had it, without asking
- * @property {(key: string, name: string) => Promise<void>} addLabel      no-op when present
+ * @property {(key: string, name: string) => Promise<void>} addLabel      no-op when present; throws LabelGroupTaken when a group that takes one label already has another
  * @property {(key: string, name: string) => Promise<void>} removeLabel   no-op when absent
  * @property {(key: string, stage: Stage) => Promise<Stage>} setStage     returns where it is now (`completed` for `qa` without a QA state)
  * @property {(key: string) => Promise<Comment[]>} comments   oldest first
@@ -107,7 +110,17 @@ export function parsePairs(text) {
 }
 
 export const PRIORITIES = ['urgent', 'high', 'medium', 'low', 'none'];
-export const STAGES = ['backlog', 'unstarted', 'started', 'qa', 'completed', 'cancelled'];
+/** An issue already carries another label from a group that takes one: another agent's lock, or a second `area`. A
+ * tracker without such groups never throws it. */
+export class LabelGroupTaken extends Error {
+  constructor(key, name, message) {
+    super(`${key}: can't add ${name}: ${message}`);
+    this.key = key;
+    this.label = name;
+  }
+}
+
+export const STAGES = ['backlog', 'unstarted', 'started', 'needs-human', 'qa', 'completed', 'cancelled'];
 export const closedStage = (stage) => ['completed', 'cancelled', 'qa'].includes(stage);
 
 /**

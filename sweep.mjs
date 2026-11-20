@@ -28,7 +28,7 @@ import { focusOf } from './tick.mjs';
 import {
   AGENT_PREFIX, BLOCKED, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  blockGraph, downstream, needsQA, partOfIssues, providers, refText, whyNotClaimable, FAILED, SHAPED, shapeKind, whyNotShapeable,
+  blockGraph, downstream, needsQA, openParents, partOfIssues, providers, refText, whyNotClaimable, FAILED, SHAPED, shapeKind, whyNotShapeable,
 } from './rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
@@ -74,9 +74,47 @@ export async function migrateLabels(gh) {
   return moved;
 }
 
+/**
+ * A work item that still carries swarm/needs-human, from before the Needs
+ * Human state took its place, moves there and loses the label; `issues` are
+ * updated in place. The PR label stays: GitHub has no states. A tracker
+ * without the state keeps the label, and says so. Returns the lines to report.
+ */
+export async function moveHandedOff(gh, issues) {
+  const lines = [];
+  for (const item of issues.filter((i) => labelNames(i).includes(NEEDS_HUMAN))) {
+    if (item.stage !== 'needs-human') {
+      try {
+        item.stage = await gh.setStage(item.number, 'needs-human');
+      } catch (e) {
+        return [...lines, `${refText(item.number)} and the rest keep \`${NEEDS_HUMAN}\`: ${e.message}.`];
+      }
+    }
+    await gh.removeLabel(item.number, NEEDS_HUMAN);
+    item.labels = item.labels.filter((l) => canonical(l.name ?? l) !== NEEDS_HUMAN);
+    lines.push(`${refText(item.number)}: \`${NEEDS_HUMAN}\` is now the Needs Human state.`);
+  }
+  return lines;
+}
+
 const STATE = /<!-- agent-desk-state: (.*?) -->/s;
 
 // An event keeps the name its label had at the time, so old names are read as today's.
+/**
+ * The open Agent desk: the item labelled swarm/desk, else (a label lost when
+ * Linear's labels were regrouped) the open work item titled "Agent desk",
+ * which gets the label back, so no second desk is made.
+ */
+export async function findDesk(gh, issues) {
+  const labelled = issues.find((i) => labelNames(i).includes(DESK));
+  if (labelled || !gh.findIssue) return labelled ?? null;
+  const titled = issues.find((i) => i.title.trim().toLowerCase() === 'agent desk');
+  if (!titled) return null;
+  await gh.addLabel(titled.number, DESK);
+  titled.labels = [...titled.labels, { name: DESK }];
+  return titled;
+}
+
 const lastEvent = (events, type, test) =>
   events.filter((e) => e.event === type && test(canonical(e.label?.name ?? ''))).map((e) => e.created_at).sort().at(-1) ?? null;
 const lastLabeled = (events, test) => lastEvent(events, 'labeled', test);
@@ -106,6 +144,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   const states = new Map(); // PR number -> its state, where a loop below worked it out
 
   const [issues, pulls] = await Promise.all([gh.openIssues(), gh.openPulls()]);
+  if (gh.findIssue) fixed.push(...await moveHandedOff(gh, issues));
   const linked = linkedPulls(pulls);
   const gated = (await gh.requiredChecks()).includes(REVIEWED);
   const released = new Set(); // freed in this run: their wait starts now
@@ -166,7 +205,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   // The queue: ready, unblocked, in focus, and nobody has taken it. Agents
   // start nothing outside focus, so ready work there is not overdue.
   const focused = await focusOf(gh, issues);
-  const ctx = { can: { has: () => true }, linked };
+  const ctx = { can: { has: () => true }, linked, parents: openParents(issues) };
   for (const issue of issues.filter((i) => !released.has(i.number) && focused.of(i) && !whyNotClaimable(i, ctx))) {
     // Since its last change: it became ready, or an agent let go of it, or
     // someone edited it. That can only make the wait look shorter, and costs
@@ -245,11 +284,14 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     }
   }
 
-  // Anything an agent handed to a person, with the work it holds up.
+  // Anything an agent handed to a person, with the work it holds up: a PR
+  // labelled swarm/needs-human, a work item in Needs Human.
   const labelled = { needsHuman: [], hold: [] };
   const blocks = blockGraph(issues);
-  for (const item of [...issues, ...pulls].filter((i) => labelNames(i).includes(NEEDS_HUMAN))) {
-    const since = lastLabeled(await gh.events(item.number), (n) => n === NEEDS_HUMAN) ?? item.created_at;
+  const handedOff = (i) => (typeOf(i) === 'issue' && gh.findIssue ? i.stage === 'needs-human' : labelNames(i).includes(NEEDS_HUMAN));
+  for (const item of [...issues, ...pulls].filter(handedOff)) {
+    const since = item.stage === 'needs-human' ? item.updated_at ?? item.created_at
+      : lastLabeled(await gh.events(item.number), (n) => n === NEEDS_HUMAN) ?? item.created_at;
     const inFocus = (n) => Boolean(focused.of(issues.find((i) => i.number === n) ?? { number: n }));
     const held = typeOf(item) === 'issue' ? holdsUp(blocks, item, (await gh.blocking?.(item)) ?? [], inFocus) : '';
     flag('Needs you', `human:${item.number}`, `${refText(item.number)} ${item.title}${held}`, { number: item.number, agent: agentOf(item), since });
@@ -274,7 +316,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   }
 
   // Agents that stopped ticking.
-  const desk = issues.find((i) => labelNames(i).includes(DESK)) ?? null;
+  const desk = await findDesk(gh, issues);
   const heartbeats = [];
   let stateComment = null;
   if (desk) {

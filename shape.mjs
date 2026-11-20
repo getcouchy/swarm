@@ -119,7 +119,10 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
     const [file] = rest;
     if (!file) throw new ShapeUsage(`Usage: agent.mjs ${SHAPE_USAGE.split(' | ').find((u) => u.startsWith('create'))}`);
     const { title, body } = titled(readFile(file, 'utf8'), opt(args, 'title'));
-    const labels = [...new Set([SHAPED, ...keys(opt(args, 'labels'))])].filter((l) => l === SHAPED || !l.startsWith(NS));
+    const given = keys(opt(args, 'labels'));
+    // A slice is for the parent's repository unless it says otherwise.
+    const repo = given.some((l) => l.startsWith('repo/')) ? [] : labelNames(item).filter((l) => l.startsWith('repo/'));
+    const labels = [...new Set([SHAPED, ...given, ...repo])].filter((l) => l === SHAPED || !l.startsWith(NS));
     const made = await client.createIssue(title, body, labels, { parent: key, priority: opt(args, 'priority') ?? null });
     const blockedBy = keys(opt(args, 'blocked-by'));
     if (made && blockedBy.length) await client.relate(made.key, 'blocked_by', blockedBy);
@@ -140,7 +143,9 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
     if (!changes.length || rest.some((r) => !/^[+-]./.test(r))) throw new ShapeUsage('Usage: agent.mjs labels <key> +<name> -<name>…');
     const theirs = changes.filter((c) => c.name.startsWith(NS));
     if (theirs.length) throw new ShapeUsage(`${theirs.map((c) => c.name).join(', ')}: swarm/ labels change only through their own commands (PROTOCOL.md, "The labels").`);
-    for (const c of changes) await (c.add ? client.addLabel(key, c.name) : client.removeLabel(key, c.name));
+    // Removals first: a group that takes one label (`area`, `platform`, `repo`) takes `-area/app +area/api` as a swap.
+    for (const c of changes.filter((x) => !x.add)) await client.removeLabel(key, c.name);
+    for (const c of changes.filter((x) => x.add)) await client.addLabel(key, c.name);
     return { key, added: changes.filter((c) => c.add).map((c) => c.name), removed: changes.filter((c) => !c.add).map((c) => c.name) };
   }
 

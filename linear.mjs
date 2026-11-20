@@ -1,21 +1,29 @@
 // The work item provider for Linear (workitems.mjs has the interface). A
 // team's issues are the work; a repository's are the team's issues it owns:
-// those of the first repository listed for the team, unless a `repo/<name>`
-// label names another.
+// those of the first repository listed for the team, unless a label in the
+// `repo` group names another.
+//
+// Linear keeps the swarm's labels in label groups, and the rules read them
+// under the names they have on GitHub (see protocolName): `claude-1` in the
+// `swarm-agent` group is the lock `swarm/agent/claude-1`, `needs-human` in the
+// `swarm` group is `swarm/needs-human`, `agent-runner` in `repo` is
+// `repo/agent-runner`. A single-select group takes one label per issue, so a
+// second agent's lock is refused rather than doubled (LabelGroupTaken).
 //
 // Env: LINEAR_TEAMS (`owner/name=KEY` pairs, see DEFAULT_TEAMS), and one way
 // in: LINEAR_CLIENT_ID and LINEAR_CLIENT_SECRET (an OAuth app with client
 // credentials on: the swarm then acts as the app, and mints and caches its
 // 30-day token), LINEAR_ACCESS_TOKEN (a token minted elsewhere) or
 // LINEAR_API_KEY (a personal key: the swarm acts as that person).
-// LINEAR_QA_STATE (default QA) names the state that is the `qa` stage.
+// LINEAR_QA_STATE (default QA) names the state that is the `qa` stage, and
+// LINEAR_NEEDS_HUMAN_STATE (default Needs Human) the one that is `needs-human`.
 // DRY_RUN=true logs writes without making them.
 
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { AGENT_PREFIX, BLOCKED, DESIGN, DESK, FOCUS, GROOM, HANDS_OFF, HOLD, NEEDS_HUMAN, QA, SHAPED } from './rules.mjs';
-import { aliasesFor, closedStage, isKey, moved, parsePairs } from './workitems.mjs';
+import { AGENT_PREFIX, BLOCKED, DESIGN, DESK, FOCUS, GROOM, HANDS_OFF, HOLD, NEEDS_HUMAN, NEEDS_PREFIX, NS, QA, SHAPED } from './rules.mjs';
+import { LabelGroupTaken, aliasesFor, closedStage, isKey, moved, parsePairs } from './workitems.mjs';
 
 export const API = 'https://api.linear.app/graphql';
 export const TOKEN_URL = 'https://api.linear.app/oauth/token';
@@ -32,8 +40,40 @@ const TYPE_OF = { backlog: 'backlog', unstarted: 'unstarted', started: 'started'
 const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#bec2c8'], [BLOCKED, '#e99695'], [QA, '#0e8a16'], [GROOM, '#c5def5'], [DESIGN, '#d4c5f9'], [SHAPED, '#0075ca']];
 export const colorOf = (name) => COLORS.find(([p]) => name.startsWith(p))?.[1] ?? '#bec2c8';
 
+// The groups the protocol's labels live in, in Linear.
+export const AGENT_GROUP = 'swarm-agent';
+export const SWARM_GROUP = 'swarm';
+// Children of the swarm group that are labels of their own, not `swarm/needs/<thing>`.
+const SWARM_OWN = new Set([NEEDS_HUMAN, GROOM].map((n) => n.slice(NS.length)));
+
+/**
+ * The name the rules read for a Linear label, { name, parent: { name } }: a
+ * child of `swarm-agent` is a lock (`swarm/agent/<name>`); `needs-<thing>` in
+ * `swarm` is `swarm/needs/<thing>`, and its other children `swarm/<name>`; a
+ * child of any other group is `<group>/<name>` (a child already named
+ * `platform/ios` stays that). A label in no group keeps its name.
+ */
+export function protocolName({ name, parent }) {
+  const group = parent?.name;
+  if (!group) return name;
+  if (group === AGENT_GROUP) return AGENT_PREFIX + name;
+  if (group === SWARM_GROUP) return name.startsWith('needs-') && !SWARM_OWN.has(name) ? NEEDS_PREFIX + name.slice(6) : NS + name;
+  return name.startsWith(`${group}/`) ? name : `${group}/${name}`;
+}
+
+/** Where protocolName's `name` goes in Linear: { group, child }, or null for a label in no group. */
+export function linearPlace(name) {
+  if (name.startsWith(AGENT_PREFIX)) return { group: AGENT_GROUP, child: name.slice(AGENT_PREFIX.length) };
+  if (name.startsWith(NEEDS_PREFIX)) return { group: SWARM_GROUP, child: `needs-${name.slice(NEEDS_PREFIX.length)}` };
+  if (name.startsWith(NS)) return { group: SWARM_GROUP, child: name.slice(NS.length) };
+  const at = name.indexOf('/');
+  return at > 0 ? { group: name.slice(0, at), child: name.slice(at + 1) } : null;
+}
+
+const groupTaken = (e) => e.errors?.find((x) => /not exclusive/i.test(x.message ?? ''));
+
 const ITEM = `id identifier title description priority url createdAt updatedAt
-  state { id name type } labels(first: 50) { nodes { id name } } parent { id } cycle { id isActive }`;
+  state { id name type } labels(first: 50) { nodes { id name parent { name } } } parent { id } cycle { id isActive }`;
 const COMMENT = 'id body createdAt updatedAt';
 const RELATED = 'identifier state { type name }';
 
@@ -81,13 +121,13 @@ export function appToken({ clientId, clientSecret, file, fetchImpl = fetch, now 
 
 /**
  * A Linear client for one repository's work items. `team` is the team key
- * (COU); `defaultRepo` the repository its items belong to unless a
- * `repo/<name>` label says otherwise. `auth` is { get, renew? } returning the
+ * (COU); `defaultRepo` the repository its items belong to unless a label
+ * in the `repo` group says otherwise. `auth` is { get, renew? } returning the
  * Authorization header's value. Every list is read once per client: a
  * command runs in seconds.
  */
 export function linearClient({
-  auth, team, repo, defaultRepo = repo, qaState = 'QA', map = moved(), apiUrl = API,
+  auth, team, repo, defaultRepo = repo, qaState = 'QA', humanState = 'Needs Human', map = moved(), apiUrl = API,
   dryRun = false, log = console.error, fetchImpl = fetch,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)), now = () => Date.now(),
 }) {
@@ -156,29 +196,37 @@ export function linearClient({
     }`, { key: team });
     const found = data.teams.nodes[0];
     if (!found) throw new Error(`Linear has no team ${team}`);
-    const labels = await pages(`query($after: String) { issueLabels(first: 250, after: $after) { nodes { id name isGroup team { id } } pageInfo { hasNextPage endCursor } } }`,
-      {}, (d) => d.issueLabels);
-    // A team's own label wins over a workspace label of the same name.
-    const usable = labels.filter((l) => !l.isGroup && (!l.team || l.team.id === found.id))
-      .sort((a, b) => Number(Boolean(a.team)) - Number(Boolean(b.team)));
     urlKey = data.organization.urlKey;
-    return {
-      teamId: found.id,
-      states: found.states.nodes,
-      byName: new Map(usable.map((l) => [l.name, l])),
-    };
+    return { teamId: found.id, states: found.states.nodes, ...await labelsOf(found.id) };
   })());
+
+  /**
+   * The labels this team can apply, by the name the rules read, and the
+   * groups by name. A retired label can't be applied, so it isn't here. A
+   * label in a group wins over one of the same name in none (`swarm/blocked`
+   * from before the groups), and a team's own over a workspace label.
+   */
+  async function labelsOf(teamId) {
+    const labels = await pages(`query($after: String) { issueLabels(first: 250, after: $after) {
+      nodes { id name isGroup retiredAt parent { id name } team { id } } pageInfo { hasNextPage endCursor } } }`, {}, (d) => d.issueLabels);
+    const usable = labels.filter((l) => !l.retiredAt && (!l.team || l.team.id === teamId));
+    const rank = (l) => Number(Boolean(l.parent)) * 2 + Number(Boolean(l.team));
+    const byName = new Map();
+    for (const l of usable.filter((x) => !x.isGroup).sort((a, b) => rank(a) - rank(b))) byName.set(protocolName(l), l);
+    const groups = new Map(usable.filter((l) => l.isGroup).sort((a, b) => rank(a) - rank(b)).map((l) => [l.name, l]));
+    return { byName, groups };
+  }
 
   const repoOf = (names) => {
     const tag = names.find((n) => n.startsWith('repo/'));
     if (!tag) return defaultRepo;
     return tag.includes('/', 5) ? tag.slice(5) : `${owner}/${tag.slice(5)}`;
   };
-  const stageOf = (state) => (state?.name === qaState ? 'qa' : STAGE_OF[state?.type] ?? 'backlog');
+  const stageOf = (state) => (state?.name === qaState ? 'qa' : state?.name === humanState ? 'needs-human' : STAGE_OF[state?.type] ?? 'backlog');
 
   /** A Linear issue as the rules read a work item. */
   const shape = (raw) => {
-    const names = raw.labels.nodes.map((l) => l.name);
+    const names = raw.labels.nodes.map(protocolName);
     const stage = stageOf(raw.state);
     const itemRepo = repoOf(names);
     return {
@@ -230,22 +278,26 @@ export function linearClient({
     return item;
   };
 
+  /** The id of the label the rules call `name`, made (in its group, when Linear has that group) if it is new. */
   async function labelId(name) {
     const c = await context();
     const have = c.byName.get(name);
     if (have) return have.id;
+    const place = linearPlace(name);
+    const group = place && c.groups.get(place.group);
+    const input = group ? { name: place.child, parentId: group.id, color: colorOf(name) } : { name, color: colorOf(name) };
     let made;
     try {
       made = (await gql(`mutation($input: IssueLabelCreateInput!) { issueLabelCreate(input: $input) { issueLabel { id name } } }`,
-        { input: { name, color: colorOf(name) } }, { write: true }))?.issueLabelCreate.issueLabel;
+        { input }, { write: true }))?.issueLabelCreate.issueLabel;
     } catch (e) {
       // Another agent made it a moment ago.
-      made = (await pages(`query($name: String!, $after: String) { issueLabels(first: 50, after: $after, filter: { name: { eq: $name } }) { nodes { id name } pageInfo { hasNextPage endCursor } } }`,
-        { name }, (d) => d.issueLabels))[0];
+      Object.assign(c, await labelsOf(c.teamId));
+      made = c.byName.get(name);
       if (!made) throw e;
     }
     if (!made) return null; // dry run
-    c.byName.set(made.name, made);
+    c.byName.set(name, made);
     return made.id;
   }
 
@@ -255,9 +307,14 @@ export function linearClient({
     return raw ? remember(shape(raw)) : item;
   }
 
-  // `qa` is the QA state, or Done in a team that has none; otherwise the first state of the type, by Linear's order.
-  const stateFor = (c, stage) => (stage === 'qa' && c.states.find((s) => s.name === qaState))
-    || c.states.filter((s) => s.type === TYPE_OF[stage === 'qa' ? 'completed' : stage] && s.name !== qaState).sort((a, b) => a.position - b.position)[0];
+  // `qa` is the QA state, or Done in a team that has none; `needs-human` the Needs Human state, with no fallback;
+  // otherwise the first state of the type, by Linear's order, that is neither.
+  const stateFor = (c, stage) => {
+    if (stage === 'needs-human') return c.states.find((s) => s.name === humanState);
+    return (stage === 'qa' && c.states.find((s) => s.name === qaState))
+      || c.states.filter((s) => s.type === TYPE_OF[stage === 'qa' ? 'completed' : stage] && ![qaState, humanState].includes(s.name))
+        .sort((a, b) => a.position - b.position)[0];
+  };
 
   const commentIds = new Set();
   const shapeComment = (raw) => {
@@ -302,23 +359,32 @@ export function linearClient({
       const id = await labelId(name);
       if (!id) return;
       // One label added, not the whole list written back: a label another agent adds at the same time survives.
-      const raw = (await gql(`mutation($id: String!, $label: String!) { issueAddLabel(id: $id, labelId: $label) { issue { ${ITEM} } } }`,
-        { id: item.id, label: id }, { write: true }))?.issueAddLabel.issue;
+      let raw;
+      try {
+        raw = (await gql(`mutation($id: String!, $label: String!) { issueAddLabel(id: $id, labelId: $label) { issue { ${ITEM} } } }`,
+          { id: item.id, label: id }, { write: true }))?.issueAddLabel.issue;
+      } catch (e) {
+        const taken = groupTaken(e);
+        if (taken) throw new LabelGroupTaken(key, name, taken.extensions?.userPresentableMessage ?? taken.message);
+        throw e;
+      }
       if (raw) remember(shape(raw));
     },
+    /** Every label on it the rules call `name`: one in a group, and one of the same name in none. */
     removeLabel: async (key, name) => {
-      const item = await get(key);
-      const at = item?.labels.findIndex((l) => l.name === name) ?? -1;
-      if (at < 0) return;
-      const raw = (await gql(`mutation($id: String!, $label: String!) { issueRemoveLabel(id: $id, labelId: $label) { issue { ${ITEM} } } }`,
-        { id: item.id, label: item.labelIds[at] }, { write: true }))?.issueRemoveLabel.issue;
-      if (raw) remember(shape(raw));
+      let item = await get(key);
+      for (let at; item && (at = item.labels.findIndex((l) => l.name === name)) >= 0;) {
+        const raw = (await gql(`mutation($id: String!, $label: String!) { issueRemoveLabel(id: $id, labelId: $label) { issue { ${ITEM} } } }`,
+          { id: item.id, label: item.labelIds[at] }, { write: true }))?.issueRemoveLabel.issue;
+        if (!raw) return; // dry run
+        item = remember(shape(raw));
+      }
     },
     setStage: async (key, stage) => {
       const item = await need(key);
       const to = stateFor(await context(), stage);
       if (!to) throw new Error(`Linear team ${team} has no ${stage} state`);
-      const now = to.name === qaState ? 'qa' : STAGE_OF[to.type];
+      const now = stageOf(to);
       if (item.stage !== now) await update(item, { stateId: to.id });
       return now;
     },
@@ -341,10 +407,10 @@ export function linearClient({
     labelEvents: async (key) => {
       const item = await need(key);
       const history = await pages(`query($id: String!, $after: String) { issue(id: $id) { history(first: 100, after: $after) {
-        nodes { createdAt addedLabels { name } removedLabels { name } } pageInfo { hasNextPage endCursor } } } }`, { id: item.id }, (d) => d.issue.history);
+        nodes { createdAt addedLabels { name parent { name } } removedLabels { name parent { name } } } pageInfo { hasNextPage endCursor } } } }`, { id: item.id }, (d) => d.issue.history);
       return history.flatMap((h) => [
-        ...(h.addedLabels ?? []).map((l) => ({ event: 'labeled', label: { name: l.name }, created_at: h.createdAt })),
-        ...(h.removedLabels ?? []).map((l) => ({ event: 'unlabeled', label: { name: l.name }, created_at: h.createdAt })),
+        ...(h.addedLabels ?? []).map((l) => ({ event: 'labeled', label: { name: protocolName(l) }, created_at: h.createdAt })),
+        ...(h.removedLabels ?? []).map((l) => ({ event: 'unlabeled', label: { name: protocolName(l) }, created_at: h.createdAt })),
       ]).sort((a, b) => a.created_at.localeCompare(b.created_at));
     },
     relations,
@@ -446,6 +512,7 @@ export function linearFromEnv(repo, env = process.env) {
     repo,
     defaultRepo: [...teams].find(([, key]) => key === team)[0],
     qaState: env.LINEAR_QA_STATE || 'QA',
+    humanState: env.LINEAR_NEEDS_HUMAN_STATE || 'Needs Human',
     dryRun: env.DRY_RUN === 'true',
   });
 }

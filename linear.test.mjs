@@ -1,16 +1,18 @@
 // node --test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_TEAMS, appToken, linearClient } from './linear.mjs';
-import { PROVIDER_METHODS, assertProvider, currentKey, isKey, parsePairs, tracker } from './workitems.mjs';
+import { DEFAULT_TEAMS, appToken, linearClient, linearPlace, protocolName } from './linear.mjs';
+import { LabelGroupTaken, PROVIDER_METHODS, assertProvider, currentKey, isKey, parsePairs, tracker } from './workitems.mjs';
 import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from './rules.mjs';
 import { claim, focusOf, next } from './tick.mjs';
-import { followPulls, readLinked, writeDesk } from './sweep.mjs';
+import { findDesk, moveHandedOff, followPulls, readLinked, writeDesk } from './sweep.mjs';
 import { run } from './commands.mjs';
 
 const STATES = [
   { id: 's-backlog', name: 'Backlog', type: 'backlog', position: 0 },
   { id: 's-todo', name: 'Todo', type: 'unstarted', position: 1 },
+  // Before In Progress, so moving an item to `started` has to pass it over.
+  { id: 's-human', name: 'Needs Human', type: 'started', position: 1.5 },
   { id: 's-doing', name: 'In Progress', type: 'started', position: 2 },
   { id: 's-review', name: 'In Review', type: 'started', position: 3 },
   { id: 's-done', name: 'Done', type: 'completed', position: 4 },
@@ -55,7 +57,7 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
     const touch = (i) => { i.updatedAt = `2026-11-18T00:00:${String(++n).padStart(2, '0')}Z`; return { issue: raw(i) }; };
     switch (field) {
       case 'organization': return reply({ organization: { urlKey: 'couchy' }, teams: { nodes: [{ id: 't1', key: 'COU', states: { nodes: states } }] } });
-      case 'issueLabels': return reply({ issueLabels: page(labels.filter((l) => !v.name || l.name === v.name).map((l) => ({ team: null, isGroup: false, ...l }))) });
+      case 'issueLabels': return reply({ issueLabels: page(labels.filter((l) => !v.name || l.name === v.name).map((l) => ({ team: null, isGroup: false, parent: null, retiredAt: null, ...l }))) });
       case 'issues': return reply({ issues: page(issues.map(raw)) });
       case 'issue': {
         const i = byId(v.id);
@@ -72,11 +74,22 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
         return reply({ issue: raw(i) });
       }
       case 'issueLabelCreate': {
-        const made = { id: `l-${v.input.name}`, ...v.input };
+        const group = labels.find((l) => l.id === v.input.parentId);
+        const made = { id: `l-${group ? `${group.name}/` : ''}${v.input.name}`, ...v.input, ...(group ? { parent: { id: group.id, name: group.name } } : {}) };
         labels.push(made);
         return reply({ issueLabelCreate: { issueLabel: made } });
       }
-      case 'issueAddLabel': { const i = byId(v.id); i.labelIds.push(v.label); return reply({ issueAddLabel: touch(i) }); }
+      case 'issueAddLabel': {
+        const i = byId(v.id);
+        // A single-select group takes one child per issue, as Linear's does.
+        const groupOf = (id) => labels.find((l) => l.id === id)?.parent?.id;
+        const group = labels.find((l) => l.id === groupOf(v.label));
+        if (group?.groupType === 'singleSelect' && i.labelIds.some((id) => groupOf(id) === group.id)) {
+          return { ok: false, status: 400, json: async () => ({ errors: [{ message: 'labelIds not exclusive child labels', extensions: { userPresentableMessage: `Only one label in ${group.name} can be applied to an issue.` } }] }), headers: { get: () => null } };
+        }
+        i.labelIds.push(v.label);
+        return reply({ issueAddLabel: touch(i) });
+      }
       case 'issueRemoveLabel': { const i = byId(v.id); i.labelIds = i.labelIds.filter((l) => l !== v.label); return reply({ issueRemoveLabel: touch(i) }); }
       case 'issueUpdate': {
         const i = byId(v.id);
@@ -125,6 +138,7 @@ const client = (fake, more = {}) => linearClient({
   fetchImpl: fake.fetchImpl, sleep: async () => {}, ...more,
 });
 const t = (gh, provider) => tracker(gh, provider, { map: MAP });
+const labelNamesOf = (i) => i.labels.map((l) => l.name);
 
 test('the provider has every method of the interface', () => {
   const p = client(fakeLinear());
@@ -275,12 +289,13 @@ test('commands take a key, new or old; the event names the item by repository, n
   const fake = fakeLinear({ issues: [item(12), item(1)] });
   const gh = { repo: 'getcouchy/couchy', rateLimitRemaining: () => 10 };
   const { out, event } = await run('needs-human', ['COU-12', 'Which', 'one?'], { clients: [t(gh, client(fake))], me: 'codex' });
-  assert.deepEqual([out.commented, out.labelled], [true, true]);
+  assert.deepEqual([out.commented, out.stage, out.label], [true, 'needs-human', undefined], 'a work item goes to Needs Human, unlabelled');
+  assert.deepEqual([fake.issues[0].stateId, fake.issues[0].labelIds], ['s-human', []]);
   assert.match(fake.comments.i12[0].body, /Which one\?/);
   const line = await event();
   assert.deepEqual([line.repo, line.number, line.type, line.key], ['getcouchy/couchy', 12, 'issue', 'COU-12']);
   const old = await run('needs-human', ['COUCHYUX-1', 'Old', 'key?'], { clients: [t(gh, client(fake))], me: 'codex' });
-  assert.equal(old.out.labelled, true);
+  assert.equal(old.out.stage, 'needs-human');
   assert.match(fake.comments.i1[0].body, /Old key\?/);
 });
 
@@ -425,7 +440,7 @@ test('descriptions are Markdown as Linear stores them: blockers read straight fr
 });
 
 test('shaping: child items are made in Backlog under their parent; relations; files upload, then attach', async () => {
-  const fake = fakeLinear({ issues: [item(1, { labelIds: ['lg'] }), item(2)], labels: [{ id: 'lg', name: 'swarm/groom' }] });
+  const fake = fakeLinear({ issues: [item(1, { labelIds: ['lg'] }), item(2)], labels: [{ id: 'lg', name: 'groom', parent: { id: 'g-swarm', name: 'swarm' } }] });
   const puts = [];
   const fetchImpl = async (url, opts = {}) => {
     if (url === 'https://storage.example/put') {
@@ -512,4 +527,85 @@ test('links: what is linked to an item, its uploads aside', async () => {
   await p.addLink('COU-1', 'https://github.com/getcouchy/couchy/pull/60', 'PR #60: x');
   fake.attachments.i1.push({ id: 'up', url: 'https://uploads.linear.app/w/board.png', title: 'board.png', metadata: {} });
   assert.deepEqual(await p.links('COU-1'), [{ url: 'https://github.com/getcouchy/couchy/pull/60', title: 'PR #60: x' }]);
+});
+
+// Linear's label groups as the couchy workspace has them: locks in
+// `swarm-agent` and repositories in `repo` take one label each; `swarm` takes several.
+const GROUPED = [
+  { id: 'g-agent', name: 'swarm-agent', isGroup: true, groupType: 'singleSelect' },
+  { id: 'g-swarm', name: 'swarm', isGroup: true, groupType: 'multiSelect' },
+  { id: 'g-repo', name: 'repo', isGroup: true, groupType: 'singleSelect' },
+  { id: 'g-platform', name: 'platform', isGroup: true, groupType: 'singleSelect' },
+  { id: 'l-claude-1', name: 'claude-1', parent: { id: 'g-agent', name: 'swarm-agent' } },
+  { id: 'l-human', name: 'needs-human', parent: { id: 'g-swarm', name: 'swarm' } },
+  { id: 'l-shaping', name: 'needs-shaping', parent: { id: 'g-swarm', name: 'swarm' } },
+  { id: 'l-sim', name: 'needs-ios-sim', parent: { id: 'g-swarm', name: 'swarm' } },
+  { id: 'l-blocked', name: 'blocked', parent: { id: 'g-swarm', name: 'swarm' } },
+  { id: 'l-blocked-flat', name: 'swarm/blocked' },
+  { id: 'l-runner', name: 'agent-runner', parent: { id: 'g-repo', name: 'repo' } },
+  { id: 'l-ios', name: 'platform/ios', parent: { id: 'g-platform', name: 'platform' } },
+  { id: 'l-desk-old', name: 'swarm/desk', retiredAt: '2026-11-20T00:00:00Z' },
+];
+const grouped = (more = {}) => fakeLinear({ labels: GROUPED.map((l) => ({ ...l })), ...more });
+
+test('label groups: a child reads as the protocol names it, and goes back to its group', () => {
+  const as = (name, group) => protocolName({ name, parent: group ? { name: group } : null });
+  assert.deepEqual([as('claude-1', 'swarm-agent'), as('needs-human', 'swarm'), as('needs-shaping', 'swarm'), as('needs-ios-sim', 'swarm'), as('blocked', 'swarm'),
+    as('agent-runner', 'repo'), as('platform/ios', 'platform'), as('web', 'platform'), as('swarm/blocked')],
+  ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-shaping', 'swarm/needs/ios-sim', 'swarm/blocked', 'repo/agent-runner', 'platform/ios', 'platform/web', 'swarm/blocked']);
+  for (const name of ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs/ios-sim', 'swarm/qa', 'repo/ops']) {
+    const { group, child } = linearPlace(name);
+    assert.equal(as(child, group), name, `${name} round-trips`);
+  }
+  assert.equal(linearPlace('conflicts-with-main'), null);
+});
+
+test('label groups: items read grouped labels, the repo group routes them, new labels are made in their group', async () => {
+  const fake = grouped({ issues: [item(1, { labelIds: ['l-runner', 'l-sim', 'l-human'] }), item(2, { labelIds: ['l-blocked', 'l-blocked-flat'] })] });
+  const runner = linearClient({ auth: { get: async () => 'k' }, team: 'COU', repo: 'getcouchy/agent-runner', defaultRepo: 'getcouchy/couchy', map: MAP, fetchImpl: fake.fetchImpl, sleep: async () => {} });
+  const [one] = (await t({ repo: 'getcouchy/agent-runner' }, runner).openIssues());
+  assert.equal(one.number, 'COU-1', 'only the item the repo group gives this repository');
+  assert.deepEqual(labelNamesOf(one), ['repo/agent-runner', 'swarm/needs/ios-sim', 'swarm/needs-human']);
+  const items = t({ repo: 'getcouchy/couchy' }, client(fake));
+  await items.addLabel('COU-2', 'swarm/agent/claude-5');
+  assert.deepEqual(fake.labels.at(-1), { id: 'l-swarm-agent/claude-5', name: 'claude-5', parentId: 'g-agent', color: '#5319e7', parent: { id: 'g-agent', name: 'swarm-agent' } });
+  await items.addLabel('COU-2', 'swarm/desk');
+  assert.equal(fake.labels.at(-1).parentId, 'g-swarm', 'a retired label is not reused: swarm/desk is made in the swarm group');
+  await items.removeLabel('COU-2', 'swarm/blocked');
+  assert.deepEqual(fake.issues[1].labelIds, ['l-swarm-agent/claude-5', 'l-swarm/desk'], 'grouped and ungrouped swarm/blocked both come off');
+});
+
+test('label groups: a second agent\'s lock is refused, and that agent has lost the claim', async () => {
+  const fake = grouped({ issues: [item(1, { labelIds: ['l-claude-1'] }), item(2)] });
+  const items = t({ repo: 'getcouchy/couchy' }, client(fake));
+  await assert.rejects(items.addLabel('COU-1', 'swarm/agent/claude-2'), (e) => e instanceof LabelGroupTaken && /Only one label in swarm-agent/.test(e.message));
+  // As if claude-1's label landed between claude-2's read and its write.
+  const racing = { ...items, issue: async (n) => (n === 'COU-1' ? { number: n, labels: [] } : items.issue(n)) };
+  assert.equal(await claim(racing, 'COU-1', 'claude-2'), false);
+  assert.equal(await claim(items, 'COU-2', 'claude-2'), true);
+  assert.equal(fake.issues[1].stateId, 's-doing', 'In Progress, not Needs Human, though Needs Human comes first');
+});
+
+test('Needs Human: a work item waiting on a person; the sweep moves labelled ones there', async () => {
+  const fake = grouped({ issues: [item(1, { labelIds: ['l-human'] }), item(2, { stateId: 's-human' }), item(3, { title: 'Agent desk', stateId: 's-backlog' })] });
+  const items = t({ repo: 'getcouchy/couchy' }, client(fake));
+  const two = await items.issue('COU-2');
+  assert.deepEqual([two.stage, two.state], ['needs-human', 'open']);
+  assert.match(whyNotClaimable(two, {}), /Needs Human/);
+  const issues = await items.openIssues();
+  const lines = await moveHandedOff(items, issues);
+  assert.deepEqual(lines, ['COU-1: `swarm/needs-human` is now the Needs Human state.']);
+  assert.deepEqual([fake.issues[0].stateId, fake.issues[0].labelIds], ['s-human', []]);
+  assert.equal(issues[0].stage, 'needs-human', 'updated in place for the rest of the run');
+  const desk = await findDesk(items, issues);
+  assert.equal(desk.number, 'COU-3', 'found by its title when the label is gone');
+  assert.deepEqual(labelNamesOf(await items.issue('COU-3')), ['swarm/desk']);
+});
+
+test('Needs Human: without that state the label stays, and the sweep says why', async () => {
+  const fake = grouped({ states: STATES.filter((s) => s.id !== 's-human'), issues: [item(1, { labelIds: ['l-human'] })] });
+  const items = t({ repo: 'getcouchy/couchy' }, client(fake));
+  const [line] = await moveHandedOff(items, await items.openIssues());
+  assert.match(line, /^COU-1 and the rest keep `swarm\/needs-human`: Linear team COU has no needs-human state/);
+  assert.deepEqual([fake.issues[0].stateId, fake.issues[0].labelIds], ['s-todo', ['l-human']]);
 });

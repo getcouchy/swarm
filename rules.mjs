@@ -6,9 +6,9 @@
 
 // A work item is ready to take in Todo or In Progress, the `unstarted` and
 // `started` stages. In Progress with nobody on it and no PR open is
-// work an agent let go of; Backlog is not ready yet.
+// work an agent let go of; Backlog is not ready yet, and Needs Human waits on
+// a person (`needs-human`, the work item's side of the swarm/needs-human label).
 export const READY_STAGES = ['unstarted', 'started'];
-export const EPIC = 'kind/epic';
 // Every label the agents' protocol owns is under `swarm/`, so a person reading
 // an issue's labels can tell them from the product's.
 export const NS = 'swarm/';
@@ -18,9 +18,10 @@ export const REVIEWED = 'reviewed';
 export const FOCUS = `${NS}focus`;
 export const QA = `${NS}qa`;
 export const BLOCKED = `${NS}blocked`;
-// The owner asks a shaping tick to make a work item buildable (groom) or to
-// design it as well (design); the tick swaps either for `swarm/shaped`.
-export const GROOM = `${NS}groom`;
+// The owner asks a shaping tick to make a work item buildable (groom:
+// `swarm/needs-shaping`) or to design it as well (design); the tick swaps
+// either for `swarm/shaped`.
+export const GROOM = `${NS}needs-shaping`;
 export const DESIGN = `${NS}design`;
 export const SHAPED = `${NS}shaped`;
 export const CONFLICT = 'conflicts-with-main';
@@ -44,7 +45,7 @@ export const refsOf = (item) => [item.number, ...(item.aliases ?? [])];
 // everywhere (labelNames turns them into today's), so an issue an agent
 // labelled from an old checkout or from memory is understood until the sweep
 // renames it; nothing writes them any more.
-const OLD_EXACT = { 'needs-human': NEEDS_HUMAN, 'merge/hold': HOLD, focus: FOCUS, 'agent-desk': DESK };
+const OLD_EXACT = { 'needs-human': NEEDS_HUMAN, 'merge/hold': HOLD, focus: FOCUS, 'agent-desk': DESK, 'swarm/groom': GROOM };
 const OLD_PREFIX = [['agent/', AGENT_PREFIX], ['needs/', NEEDS_PREFIX]];
 
 /** Today's name for a label, whichever name it was given under. */
@@ -152,8 +153,9 @@ export function bodyBlockers(body) {
 }
 
 // Labels that say a work item changes what people see and use, and those that
-// say it doesn't. needsQA reads them.
-const UI_LABELS = ['platform/web', 'platform/ios', 'area/app', 'web/ux-buildout'];
+// say it doesn't. needsQA reads them. In Linear, `area` and `platform` are
+// groups that take one label each.
+const UI_LABELS = ['platform/web', 'platform/ios', 'area/app'];
 const BACKEND_LABELS = ['area/api', 'area/tooling', 'area/ci'];
 
 /**
@@ -230,9 +232,15 @@ export const linkedTo = (linked, issue) => [...new Set(refsOf(issue).flatMap((r)
 const withPrefix = (item, prefix) => labelNames(item).filter((n) => n.startsWith(prefix));
 
 /**
+ * The ids of the items that have an open child (the tracker's parent link):
+ * an item split into slices is built through them, never itself.
+ */
+export const openParents = (items) => new Set(items.filter((i) => i.state === 'open' && i.parent).map((i) => i.parent));
+
+/**
  * Why `me` may not claim this work item, or null when it may.
  * ctx: { can: Set of swarm/needs/* suffixes this agent's sandbox has,
- *        linked: Map from linkedPulls() }
+ *        linked: Map from linkedPulls(), parents: Set from openParents() }
  * Two agents may hold items with the same `area/*` label at once: the label
  * says what part of the product an item is in, not that its work must queue.
  * A PR that falls behind main gets `conflicts-with-main` and its author fixes it.
@@ -242,9 +250,10 @@ export function whyNotClaimable(issue, ctx) {
   if (issue.pull_request) return 'a pull request';
   if (issue.state && issue.state !== 'open') return 'closed';
   if (names.includes(DESK)) return 'the Agent desk';
+  if (issue.stage === 'needs-human') return 'in Needs Human: waiting on a person';
   if (!isReady(issue)) return `not ready: in ${issue.stage ?? 'no'} state, not Todo or In Progress`;
   if (shapeKind(issue)) return `waiting for shaping (${SHAPE_LABEL[shapeKind(issue)]})`;
-  if (names.includes(EPIC)) return 'an epic';
+  if (ctx.parents?.has(issue.id)) return 'split into sub-issues: take one of those';
   if (names.includes(NEEDS_HUMAN)) return `${NEEDS_HUMAN}`;
   if (names.includes(HANDS_OFF)) return `${HANDS_OFF}`;
   if (providers(issue).length) return `held by ${providers(issue).join(', ')}`;
@@ -272,6 +281,7 @@ export function whyNotShapeable(item) {
   if (item.pull_request) return 'a pull request';
   if (!shapeKind(item)) return `not labelled ${GROOM} or ${DESIGN}`;
   if (item.state && item.state !== 'open') return 'closed';
+  if (item.stage === 'needs-human') return 'in Needs Human: waiting on a person';
   if (!['backlog', 'unstarted'].includes(item.stage)) return `in ${item.stage}: shaping is for Backlog and Todo`;
   if (names.includes(DESK)) return 'the Agent desk';
   if (names.includes(NEEDS_HUMAN)) return `${NEEDS_HUMAN}`;
