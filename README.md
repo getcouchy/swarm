@@ -30,9 +30,12 @@ or under `~/.cache`). `LINEAR_ACCESS_TOKEN`, a token minted elsewhere, or
 `LINEAR_API_KEY`, a personal key, does instead; with a personal key the swarm
 acts as that person. `LINEAR_TEAMS` (which team holds each repository's
 work, `owner/name=KEY` pairs; default `getcouchy/couchy=COU,getcouchy/couchy-agent=COU,getcouchy/agent-runner=COU`)
-and `LINEAR_QA_STATE` (the state that is QA, default `QA`) are optional. A
-team's items belong to the first repository listed for it, unless a
-`repo/<name>` label names another. `DRY_RUN=true` logs writes without making
+`LINEAR_QA_STATE` (the state that is QA, default `QA`) and
+`LINEAR_NEEDS_HUMAN_STATE` (the state a work item waits on a person in,
+default `Needs Human`) are optional. A team's items belong to the first repository listed
+for it, unless a label in the `repo` group names another. The swarm's labels
+are in Linear's `swarm-agent` and `swarm` groups (PROTOCOL.md, "Where the
+work is"). `DRY_RUN=true` logs writes without making
 them. Linear allows an OAuth app 5,000 requests an hour; the tools wait out
 the limit rather than fail.
 

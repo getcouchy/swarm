@@ -44,12 +44,12 @@ series (`count by (state) (swarm_pulls)`).
 | --- | --- | --- | --- |
 | `swarm_agent_last_tick_timestamp_seconds` | gauge | `agent` | When the agent last edited its heartbeat comment on the desk. An agent with several comments reports its newest. |
 | `swarm_pulls` | gauge | `number`, `state`, `agent` | 1 for each open pull request the agents work on or review. |
-| `swarm_issues` | gauge | `number`, `state`, `agent` | 1 for each ready work item (in Todo or In Progress): `locked` when an agent holds it, `claimable` when one could take it. One that is neither is left out: an epic, one with a pull request open for it, one marked `swarm/needs-human` or `swarm/hands-off`. Blockers are not looked up, so a blocked item reads `claimable`. |
+| `swarm_issues` | gauge | `number`, `state`, `agent` | 1 for each ready work item (in Todo or In Progress): `locked` when an agent holds it, `claimable` when one could take it. One that is neither is left out: one with open sub-issues, one with a pull request open for it, one marked `swarm/hands-off`. Blockers are not looked up, so a blocked item reads `claimable`. |
 | `swarm_lock_age_seconds` | gauge | `number`, `agent`, `type` | How long the agent's lock has been on. `type` is `issue` (a work item) or `pull`. |
 | `swarm_overdue_age_seconds` | gauge | `number`, `kind`, `agent` | One series for each line on the desk: how long the item has been in that condition. 0 where the sweep has no time to measure from. An agent with several heartbeat comments has one line on the desk, from its newest. |
 | `swarm_limit_seconds` | gauge | `limit` | The limits the sweep ran with: `claim`, `ready`, `review`, `fix`, `hold`, `heartbeat`. |
 | `swarm_sweep_fixed` | gauge | `action` | What the last run fixed: `lock_lapsed`, `lock_doubled`, `label_migrated`. |
-| `swarm_needs_human_total` | counter | `type`, `agent` | Times `swarm/needs-human` went onto a work item or pull request. |
+| `swarm_needs_human_total` | counter | `type`, `agent` | Times a work item went to Needs Human or `swarm/needs-human` went onto a pull request. |
 | `swarm_hold_total` | counter | `agent` | Times `swarm/hold` went onto a pull request. |
 | `swarm_reviewed_pulls` | gauge | `number`, `state` | 1 for each open pull request, by the `reviewed` status of its head: `success`, `failure` or `pending`. |
 | `swarm_job_last_success_timestamp_seconds` | gauge | | When the job last ran to its end. A run that fails pushes nothing, so this goes stale. |

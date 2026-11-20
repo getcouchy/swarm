@@ -20,7 +20,7 @@ export const METRICS = {
   swarm_overdue_age_seconds: gauge('How long an item on the Agent desk has been in the condition that put it there.', ['number', 'kind', 'agent']),
   swarm_limit_seconds: gauge('The limits the sweep ran with.', ['limit']),
   swarm_sweep_fixed: gauge('What the last sweep fixed by itself.', ['action']),
-  swarm_needs_human_total: counter('Times swarm/needs-human went onto an issue or pull request.', ['type', 'agent']),
+  swarm_needs_human_total: counter('Times a work item went to Needs Human or swarm/needs-human went onto a pull request.', ['type', 'agent']),
   swarm_hold_total: counter('Times swarm/hold went onto a pull request.', ['agent']),
   swarm_reviewed_pulls: gauge('1 for each open pull request, by the `reviewed` status of its head.', ['number', 'state']),
   swarm_job_last_success_timestamp_seconds: gauge('When the job last ran to its end.'),

@@ -18,8 +18,8 @@ win for that repository.
 The work for getcouchy/couchy, getcouchy/couchy-agent and
 getcouchy/agent-runner is in one team, **Couchy** (`COU`). A work item is a
 Linear issue, named by its key, `COU-12`. It belongs to getcouchy/couchy
-unless a `repo/<name>` label (`repo/couchy-agent`, `repo/agent-runner`) names
-another. Projects are the epics; the team's current cycle is the sprint.
+unless a label in the `repo` group (`repo/couchy-agent`, `repo/agent-runner`)
+names another. Projects are the epics; the team's current cycle is the sprint.
 
 The work moved here from Plane. An old Plane key (`COUCHYUX-12`, `RUNNER-3`)
 or the number of the GitHub issue an item was copied from still reaches the
@@ -45,6 +45,7 @@ What a work item's state means here:
 | Backlog | not ready: being shaped, or waiting on the owner's approval |
 | Todo | ready for an agent to take |
 | In Progress, In Review | an agent has it, or a pull request for it is open; with neither, it is ready again |
+| Needs Human | waiting on a person: an agent asked a question only they can answer, or needs a step only they can take (see "When to call a person"); no agent takes it |
 | QA | a pull request that closes it merged, and the owner is walking its acceptance criteria; no agent takes it, and it blocks nothing |
 | Done | a pull request that closes it merged, and it needed no QA or passed it |
 | Canceled | not doing it |
@@ -54,12 +55,14 @@ move it to In Progress when an agent claims it, and the sweep moves it from
 Todo to In Progress while a pull request for it is open. Nothing moves work
 out of Backlog but the owner, even with a pull request open for it. When one that closes it merges, the sweep
 moves it to QA if it changes what people see and use, and to Done if not:
-QA when it carries `swarm/qa`, `platform/web`, `platform/ios`, `area/app` or
-`web/ux-buildout`, or none of `area/api`, `area/tooling` and `area/ci`. Add
+QA when it carries `swarm/qa`, `platform/web`, `platform/ios` or `area/app`,
+or none of `area/api`, `area/tooling` and `area/ci`. Add
 `swarm/qa` to backend work whose result people will notice; nothing takes
 work out of QA but the owner, who moves it to Done when it passes, or back to
-Todo with a comment saying which criterion failed. Don't move a work item to
-QA or Done yourself.
+Todo with a comment saying which criterion failed. Nothing takes work out of
+Needs Human but the owner either, who moves it on (to Backlog or Todo) once
+they have answered. Don't move a work item to QA or Done yourself, or to Needs
+Human but with `needs-human`.
 
 An item back in Todo from QA is not new work: what shipped stays, and you fix
 only what the owner's comment says failed, on a fresh branch, in a new PR that
@@ -67,10 +70,24 @@ says `Closes <key>`. `next` tells you when an item came back (the job's
 `returned`: the merged PRs and the comments since); with no comment saying
 what failed, ask with `needs-human` rather than guess.
 
+**Labels in Linear are in groups.** The swarm's are in two: `swarm-agent`,
+whose labels are the locks (`claude-1`, `codex-1`), and `swarm`
+(`needs-shaping`, `needs-ios-sim`, `blocked`, …). The product's are in `repo`,
+`area`, `platform` and `kind`. This file names a label by its group and name,
+as Linear's filters do: `repo/agent-runner`, `area/app`, `swarm/needs-shaping`.
+A lock is the exception: `claude-1` in `swarm-agent` is what GitHub calls
+`swarm/agent/claude-1`, and this file calls it that. Every group but `swarm`
+takes **one label per work item**: Linear refuses a second, so an item has one
+repository, one area, one platform and one lock. To change one, take the old
+label off first (`agent.mjs labels COU-12 -area/app +area/api`). The tools make
+a label they need in its group the first time it is used.
+
 ## Your name
 
 The prompt that wakes you names you: "run your tick as `claude-2`". That name
-is who you are here, and `swarm/agent/<your name>` (`swarm/agent/claude-2`) is your label.
+is who you are here, and `swarm/agent/<your name>` (`swarm/agent/claude-2`) is
+your label: on GitHub under that name, in Linear as `claude-2` in the
+`swarm-agent` group.
 A name is lower-case letters, digits and hyphens, and whoever sets up the agent
 chooses it: `codex`, `grok`, `claude-2`, `claude-1-scheduled`.
 
@@ -102,6 +119,10 @@ request and code, whatever its name, so whoever ticks next carries on where
 the last one stopped. That is why a tick must end with everything pushed and the PR
 saying what is done and what is left (see "When a tick ends").
 
+In Linear a work item takes one lock: adding yours while another agent's is on
+is refused, and the claim is lost (`claim` says so). On GitHub two can land at
+once; the tie-break is under "By hand".
+
 **`swarm/hands-off` is the owner's.** On a work item or a pull request it means
 the owner is doing this one: leave it entirely alone, however stale or red it
 looks, until the label comes off. Only the owner adds or removes it.
@@ -118,9 +139,10 @@ over `swarm/pr` when a PR carries both.
 
 ## The labels
 
-Every label this protocol owns starts with `swarm/`, in Linear and on GitHub
-alike. Anything else on a work item or a PR (`area/*`, `couchy-ux/*`,
-`conflicts-with-main`, `changelog/none`) belongs to the product or CI.
+Every label this protocol owns starts with `swarm/` on GitHub, and is in the
+`swarm` or `swarm-agent` group in Linear. Anything else on a work item or a PR
+(`repo/*`, `area/*`, `platform/*`, `kind/*`, `conflicts-with-main`,
+`changelog/none`) belongs to the product or CI.
 
 | Label | Means | Who sets it |
 | --- | --- | --- |
@@ -128,20 +150,22 @@ alike. Anything else on a work item or a PR (`area/*`, `couchy-ux/*`,
 | `swarm/pr` | a PR the agents opened: theirs to review, fix and merge | the agent that opens it |
 | `swarm/review-only` | a person's PR the agents review, and the `reviewed` check gates, but never fix, continue or merge | the PR's author or the owner |
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
-| `swarm/groom` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
+| `swarm/needs-shaping` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
 | `swarm/design` | groom it, and design it in getcouchy/couchy-design: spec and wireframes (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
-| `swarm/shaped` | a shaping tick has done what `swarm/groom` or `swarm/design` asked; the owner reviews it | a shaping tick, in place of the request |
+| `swarm/shaped` | a shaping tick has done what `swarm/needs-shaping` or `swarm/design` asked; the owner reviews it | a shaping tick, in place of the request |
 | `swarm/qa` | when its closing PR merges, the work item goes to QA, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
-| `swarm/blocked` | the work item has an open blocker, for views to filter on; ask for the blockers yourself before taking work | the sweep only |
-| `swarm/needs-human` | a real fork or a step only a person can take; pages the owner and holds the merge | an agent, after its comment |
+| `swarm/blocked` | the work item waits on other work: an open blocker, for views to filter on; ask for the blockers yourself before taking work. Not the Needs Human state, which waits on a person | the sweep only; it takes off any it finds without an open blocker |
+| `swarm/needs-human` | on a PR: a real fork or a step only a person can take; pages the owner and holds the merge. A work item goes to the Needs Human state instead | an agent, after its comment |
 | `swarm/hold` | holds a PR's merge for a wait an agent can end; pages nobody | an agent, with a comment |
 | `swarm/hands-off` | the owner is handling this work item or PR: no agent starts, fixes, continues, reviews or merges it | the owner only |
-| `swarm/needs/<thing>` | the work can't be checked without `<thing>` (see "What you may take") | whoever writes the work item |
+| `swarm/needs-<thing>` | the work can't be checked without `<thing>` (see "What you may take"); the tools call it `swarm/needs/<thing>` | whoever writes the work item |
 | `swarm/desk` | marks the Agent desk work item | the sweep |
 
 Until 2026-11-12 these were `agent/<name>`, `focus`, `needs-human`,
-`merge/hold`, `needs/<thing>` and `agent-desk`. The tools still read the old
-names, and the sweep renames any it finds, but write only the new ones.
+`merge/hold`, `needs/<thing>` and `agent-desk`, and until 2026-11-20
+`swarm/needs-shaping` was `swarm/groom`. The tools still read the old names,
+and the sweep renames any it finds, but write only the new ones. The sweep
+also moves a work item still labelled `swarm/needs-human` to Needs Human.
 
 ## The repositories
 
@@ -229,9 +253,10 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    reviewed (steps 1 and 3), so written work lands.
 5. **Start one new work item in focus** (see "Focus"): one in Todo (or In
    Progress with nobody on it and no PR open) that has no `swarm/agent/*`
-   label, is not `kind/epic` or `swarm/needs-human`, has no open blockers, and
+   label, has no open sub-issues (it was split into them: take one of those),
+   has no open blockers, and
    that you can take (see "What you may take") and that is not waiting for
-   shaping (`swarm/groom` or `swarm/design`), taken in the order "Focus"
+   shaping (`swarm/needs-shaping` or `swarm/design`), taken in the order "Focus"
    gives. Nothing outside focus is started. Lock it, read it with its
    comments (`agent.mjs show <key>`), then build it; one back from QA gets
    only the fix its feedback asks for (see "Where the work is"). A work item's blockers are the items Linear's
@@ -315,7 +340,8 @@ work item, `claim 57` for a PR, and `claim getcouchy/couchy-agent#57` for a PR
 outside your home repository. Hand a work item or PR off with
 `needs-human <work item or PR> "<question>"`, or a PR with
 `hold <PR> "<what it waits for>"`: each posts the comment, then adds the
-label, and records the handoff as it happens. A label put on by hand still
+label (or moves a work item to Needs Human), and records the handoff as it
+happens. A label put on by hand still
 works, and the sweep still sees it.
 
 ### By hand
@@ -326,9 +352,10 @@ Claude cloud session that can't reach Linear takes no work item and does
 only the pull request steps (1 to 4).
 
 - **Lock:** read the labels of the work item or PR. If it has a `swarm/agent/*`
-  label, leave it. Otherwise add yours (in Linear add the one label,
-  `issueAddLabel`, rather than writing the whole list back), then **read the
-  labels again**. If
+  label, leave it. Otherwise add yours (in Linear add the one label in the
+  `swarm-agent` group, `issueAddLabel`, rather than writing the whole list
+  back; if Linear refuses it, another agent's is on and you leave it), then
+  **read the labels again**. If
   another agent's label appeared at the same moment, the alphabetically first
   name keeps it (`swarm/agent/claude` before `swarm/agent/claude-2` before
   `swarm/agent/codex`) and the other removes its own label and moves on.
@@ -432,8 +459,9 @@ Decide what you can. A question with a likely right answer is yours to answer:
   spending money, weakening security, or anything only they can do (a prod
   setting, a credential, access you don't have).
 - **When you do call:** comment with the options, what each costs, and the one
-  you would pick, then put `swarm/needs-human` on the work item or PR
-  (`agent.mjs needs-human` does both, in that order). Comment first:
+  you would pick, then move the work item to Needs Human, or put
+  `swarm/needs-human` on the PR (`agent.mjs needs-human` does both steps, in
+  that order). Comment first:
   the label pages the owner at once, with your latest comment as the text, so
   open it with the question in a sentence they can answer from their phone. Then build the
   safe side of the fork if there is one, or move on to other work. Don't
@@ -490,9 +518,9 @@ A shaping tick makes work ready to build; it builds nothing. Its prompt says
 "run your **shaping tick** as `<name>`" (with the tool: `AGENT_ROLE=shape`).
 It has a name and label of its own (`swarm/agent/claude-shape-1`) and, like
 every tick, takes one job at a time until its time is spent: the work item
-it already holds, else the next one the owner labelled `swarm/groom` or
-`swarm/design` that is in Backlog or Todo, nobody holds, and is not
-`swarm/needs-human` or `swarm/hands-off`. Labelled work in focus comes
+it already holds, else the next one the owner labelled `swarm/needs-shaping`
+or `swarm/design` that is in Backlog or Todo, nobody holds, and is not
+`swarm/hands-off`. Labelled work in focus comes
 first; then priority; then the item more open work waits on. It reviews,
 fixes and merges nothing, and never moves a work item's state: the owner
 moves shaped work to Todo, and that is the approval. While an item carries
@@ -503,7 +531,7 @@ Read the work item, its comments and its images first: `agent.mjs show
 second pass (the owner put the label back), the comments since your last
 `shaped` comment are what to change.
 
-**`swarm/groom`** asks for a work item an agent can build without asking
+**`swarm/needs-shaping`** asks for a work item an agent can build without asking
 anything. Rewrite its description with `agent.mjs describe <key> <file.md>`
 (the old one is kept in a comment), keeping what the owner wrote that still
 holds, in this shape:
@@ -519,14 +547,15 @@ holds, in this shape:
 - `Blocked by COU-…` when something must land first, also set as a
   Linear relation (`agent.mjs blocked-by <key> <keys>`).
 
-Set the product labels it needs (`agent.mjs labels <key> +platform/web
-+area/app -area/api`): an `area/*`, the platform, and `swarm/needs/<thing>`
-when it can't be checked without it. Work too big for one PR of a day or
+Set the product labels it needs, one from each group (`agent.mjs labels <key>
+-area/api +area/app +platform/web`): its `area`, its `platform`, its `repo`
+when it isn't getcouchy/couchy, and `swarm/needs/<thing>` when it can't be
+checked without it. Work too big for one PR of a day or
 less becomes slices: create each with `agent.mjs create <key> <file.md>`
 (first line `# <title>`; `--labels`, `--blocked-by`, `--priority`). Slices are
-made in Backlog, as children of the item, already `swarm/shaped`. The item
-that holds them gets `kind/epic`. Don't create work outside the item you
-hold.
+made in Backlog, as sub-issues of the item, already `swarm/shaped`, with its
+`repo` label unless `--labels` names another. While any is open no tick builds
+the item itself. Don't create work outside the item you hold.
 
 **`swarm/design`** asks for the grooming and the design. Clone
 getcouchy/couchy-design beside your checkout, read its `README.md` and
@@ -539,20 +568,21 @@ wireframe to PNG (`npx -y playwright screenshot --viewport-size "1440, 900"
 frame) and attach the PNGs to the work item (`agent.mjs attach <key>
 <file.png>…`), so the owner can review in Linear. The groomed description
 points at the spec by path and at the PR. The spec's open questions go in
-the spec; a question the design can't proceed without is a
-`swarm/needs-human` on the work item, with the question, and the tick moves
-on.
+the spec; a question the design can't proceed without goes to the owner with
+`agent.mjs needs-human <key> "<question>"`, which moves the item to Needs Human,
+and the tick moves on.
 
 **Done:** `agent.mjs shaped <key> "<summary>"` comments the summary (what
 changed, the slices, the design PR, and anything the owner should decide),
-swaps `swarm/groom` or `swarm/design` for `swarm/shaped`, and takes your lock
+swaps `swarm/needs-shaping` or `swarm/design` for `swarm/shaped`, and takes your lock
 off. Shaping that isn't finished when the tick ends stays locked until
 `finish`, keeps its label, and the next shaping tick carries it on from the
 comments and the PR.
 
 ## What you may take
 
-- `swarm/needs/<thing>` on a work item means the work can't be checked without it:
+- `swarm/needs/<thing>` on a work item (in Linear `needs-<thing>` in the
+  `swarm` group) means the work can't be checked without it:
   `swarm/needs/ios-sim` (a simulator), `swarm/needs/design` (read access to couchy-design).
   Take it only if your sandbox has that.
 - Nothing else holds a work item back. Which agent takes it doesn't matter:
@@ -576,8 +606,8 @@ a link while one is open, QA or Done once one that closes them merges), and it k
 work item in Linear current with whatever is overdue: a ready work item in focus
 no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
-labelled `swarm/needs-human` (with the work items it holds up, those in focus
-marked), work waiting in QA, work waiting for a shaping tick, shaped work in
+waiting on a person (a work item in Needs Human, a PR labelled `swarm/needs-human`;
+with the work items it holds up, those in focus marked), work waiting in QA, work waiting for a shaping tick, shaped work in
 Backlog waiting for the owner, an agent that stopped ticking. A shaping
 tick's lock on a Backlog item is expected; any other tick's is listed.
 
@@ -586,7 +616,7 @@ status ("Merging") on every open PR's head. A PR whose newest head has no
 `reviewed` status after a few minutes means that job is failing, not that the
 review is missing: say so in your heartbeat.
 
-`page.mjs` sends the page for `swarm/needs-human`. In getcouchy/couchy it is
+`page.mjs` sends the page for `swarm/needs-human` on a PR. In getcouchy/couchy it is
 not running today (`docs/ci.md`, "Needs-human page"), so the label reaches the
 owner through the desk's "Needs you" list alone. Use it as this file says all
 the same.

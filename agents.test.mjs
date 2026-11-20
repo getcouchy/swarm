@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, shapeKind, whyNotClaimable, whyNotShapeable,
+  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, openParents, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, shapeKind, whyNotClaimable, whyNotShapeable,
 } from './rules.mjs';
 import { client } from './github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from './sweep.mjs';
@@ -120,8 +120,10 @@ test('what makes an issue unclaimable', () => {
   assert.match(whyNotClaimable(issue(4, ['couchy-ux/approved', 'swarm/needs/design']), ctx), /needs design/);
   assert.equal(whyNotClaimable(issue(5, ['couchy-ux/approved', 'area/app']), ctx), null, 'an area label does not queue the work');
   assert.match(whyNotClaimable(issue(6), ctx), /PR #50/);
-  assert.match(whyNotClaimable(issue(7, ['couchy-ux/approved', 'kind/epic']), ctx), /epic/);
+  assert.match(whyNotClaimable(issue(7, [], { id: 'i7' }), { ...ctx, parents: openParents([issue(70, [], { parent: 'i7' })]) }), /sub-issues/);
+  assert.equal(openParents([issue(70, [], { parent: 'i7', state: 'closed' })]).size, 0, 'a closed child leaves its parent to be built');
   assert.match(whyNotClaimable(issue(8, ['couchy-ux/approved', 'swarm/needs-human']), ctx), /needs-human/);
+  assert.match(whyNotClaimable(issue(10, [], { stage: 'needs-human' }), ctx), /Needs Human/);
 });
 
 test('a review counts when an agent marked it or another account wrote it, never a bot', () => {
@@ -729,9 +731,9 @@ test('focus: agents start only what is in focus, highest priority first, then wh
 
   const queue = () => [
     issue(3, ['couchy-ux/approved']), // older, not in focus
-    issue(1412, ['swarm/focus', 'kind/epic']),
-    issue(1402, ['couchy-ux/approved']),
-    issue(1403, ['couchy-ux/approved']),
+    issue(1412, ['swarm/focus'], { id: 'i1412' }),
+    issue(1402, ['couchy-ux/approved'], { parent: 'i1412' }),
+    issue(1403, ['couchy-ux/approved'], { parent: 'i1412' }),
   ];
   const subIssues = { 1412: [1402, 1403] };
   let job = await next(fake({ issues: queue(), subIssues }), { me: 'codex' });
@@ -1053,21 +1055,21 @@ test('needs-human and hold: the comment, then the label, then the line the runne
 });
 
 test('shaping: a shaping tick takes what the owner labelled, in focus first, then by priority; builders leave it alone', async () => {
-  const groom = (n, extra = {}) => issue(n, ['swarm/groom'], { stage: 'backlog', ...extra });
-  assert.equal(shapeKind(issue(1, ['swarm/groom', 'swarm/design'])), 'design', 'design grooms too');
+  const groom = (n, extra = {}) => issue(n, ['swarm/needs-shaping'], { stage: 'backlog', ...extra });
+  assert.equal(shapeKind(issue(1, ['swarm/needs-shaping', 'swarm/design'])), 'design', 'design grooms too');
   assert.equal(shapeKind(issue(1)), null);
   assert.equal(whyNotShapeable(groom(1)), null);
   assert.equal(whyNotShapeable(groom(1, { stage: 'unstarted' })), null, 'Todo work can be shaped');
   assert.match(whyNotShapeable(groom(1, { stage: 'started' })), /Backlog and Todo/);
-  assert.match(whyNotShapeable(issue(1, ['swarm/groom', 'swarm/agent/claude-1'], { stage: 'backlog' })), /held by claude-1/);
+  assert.match(whyNotShapeable(issue(1, ['swarm/needs-shaping', 'swarm/agent/claude-1'], { stage: 'backlog' })), /held by claude-1/);
   assert.match(whyNotShapeable(issue(1, ['swarm/design', 'swarm/needs-human'], { stage: 'backlog' })), /needs-human/);
-  assert.match(whyNotClaimable(issue(1, ['swarm/focus', 'swarm/groom']), {}), /waiting for shaping \(swarm\/groom\)/);
+  assert.match(whyNotClaimable(issue(1, ['swarm/focus', 'swarm/needs-shaping']), {}), /waiting for shaping \(swarm\/needs-shaping\)/);
 
   const shaper = { me: 'claude-shape-1', role: 'shape' };
   const queue = () => [
     groom(10, { priority: 'urgent' }),
     issue(11, ['swarm/design'], { stage: 'backlog', priority: 'low' }),
-    issue(12, ['swarm/groom', 'swarm/focus'], { stage: 'backlog', priority: 'none' }),
+    issue(12, ['swarm/needs-shaping', 'swarm/focus'], { stage: 'backlog', priority: 'none' }),
     issue(13), // ready to build, but a shaping tick builds nothing
   ];
   let job = await next(fake({ issues: queue() }), { ...shaper, doClaim: false });
@@ -1078,7 +1080,7 @@ test('shaping: a shaping tick takes what the owner labelled, in focus first, the
   assert.deepEqual(gh.log, ['add 10 swarm/agent/claude-shape-1']);
   job = await next(gh, shaper);
   assert.deepEqual([job.issue, job.resumed], [10, true], 'its own comes back first');
-  job = await next(fake({ issues: [issue(13), issue(14, ['swarm/groom'], { stage: 'started' })] }), shaper);
+  job = await next(fake({ issues: [issue(13), issue(14, ['swarm/needs-shaping'], { stage: 'started' })] }), shaper);
   assert.deepEqual([job.job, job.why, job.skipped], ['none', 'nothing is waiting for shaping', [{ issue: 14, why: 'in started: shaping is for Backlog and Todo' }]]);
   // A builder skips a Todo item that is waiting for shaping.
   job = await next(fake({ issues: [issue(20, ['swarm/focus', 'swarm/design']), issue(21)] }), { me: 'claude-1', doClaim: false });
@@ -1087,9 +1089,9 @@ test('shaping: a shaping tick takes what the owner labelled, in focus first, the
 
 test('sweep: a shaping lock on Backlog work is fine; the desk lists work waiting for shaping and shaped work waiting for the owner', async () => {
   const issues = [
-    issue(1, ['swarm/groom', 'swarm/agent/claude-shape-1'], { stage: 'backlog', updated_at: ago(1) }),
+    issue(1, ['swarm/needs-shaping', 'swarm/agent/claude-shape-1'], { stage: 'backlog', updated_at: ago(1) }),
     issue(2, ['swarm/design'], { stage: 'backlog', updated_at: ago(6) }),
-    issue(3, ['swarm/groom'], { stage: 'backlog', updated_at: ago(1) }), // not waiting long yet
+    issue(3, ['swarm/needs-shaping'], { stage: 'backlog', updated_at: ago(1) }), // not waiting long yet
     issue(4, ['swarm/shaped'], { stage: 'backlog' }),
     issue(5, ['swarm/shaped'], { stage: 'unstarted' }), // approved: in Todo
     issue(6, ['couchy-ux/approved', 'swarm/agent/claude-2'], { stage: 'backlog', updated_at: ago(1) }),

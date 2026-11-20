@@ -167,22 +167,29 @@ export async function run(cmd, args, { clients, me, can, role, ceiling, minutes,
   }
   if (cmd === 'needs-human' || cmd === 'hold') {
     // A handoff: the comment first, then the label, which pages the owner
-    // (needs-human) with the latest comment as its text.
+    // (needs-human) with the latest comment as its text. A work item isn't
+    // labelled: it moves to Needs Human, and the owner moves it on.
     const { client, number } = ref(args[0]);
     const text = args.slice(1).join(' ').trim();
     if (!text) throw new UsageError(`Usage: agent.mjs ${cmd} <${cmd === 'hold' ? 'PR' : 'work item or PR'}> "<${cmd === 'hold' ? 'what it waits for' : 'question'}>"`);
+    if (cmd === 'hold' && isKey(number)) throw new UsageError('hold is for a PR; a work item waiting on a person is needs-human.');
     const label = cmd === 'hold' ? HOLD : NEEDS_HUMAN;
-    const out = { repo: client.repo, issue: number, label, commented: false, labelled: false };
+    const blocks = cmd === 'needs-human' && isKey(number);
+    const out = { repo: client.repo, issue: number, ...(blocks ? { stage: null } : { label, labelled: false }), commented: false };
     try {
       await client.comment(number, `${text}\n\n<!-- agent: ${me} -->`);
       out.commented = true;
-      await client.addLabel(number, label);
-      out.labelled = true;
+      if (blocks) {
+        out.stage = await client.setStage(number, 'needs-human');
+      } else {
+        await client.addLabel(number, label);
+        out.labelled = true;
+      }
     } catch (e) {
       out.error = e.message;
     }
-    // Not handed off until the label is on: no line for the runner to count.
-    if (!out.labelled) return { out, event: null };
+    // Not handed off until the label is on or the item in Needs Human: no line for the runner to count.
+    if (!out.labelled && out.stage !== 'needs-human') return { out, event: null };
     return done(out, () => read(client, number));
   }
   if (SHAPE_COMMANDS.includes(cmd)) {

@@ -28,7 +28,7 @@ function fakeClient(item, { comments = [], attachments = [], files = {} } = {}) 
     attach: async (key, f) => { log.push(`attach ${f.name} ${f.type} ${f.bytes.length}`); return { id: 'x', name: f.name }; },
   };
 }
-const item = (labels = ['swarm/groom', 'swarm/agent/claude-shape-1'], extra = {}) => ({
+const item = (labels = ['swarm/needs-shaping', 'swarm/agent/claude-shape-1'], extra = {}) => ({
   key: 'COU-7', number: 'COU-7', title: 'Seven', html_url: 'https://linear.app/couchy/issue/COU-7/seven', stage: 'backlog', priority: 'high',
   labels: labels.map((name) => ({ name })), parent: null, body: 'Old text.\n\n![Board](https://uploads.linear.app/w/b.png)', ...extra,
 });
@@ -69,7 +69,7 @@ test('images: a comment\'s screenshots too, named by their alt text, each image 
 });
 
 test('changes need the lock; describe keeps the old description in a comment', async () => {
-  const unlocked = fakeClient(item(['swarm/groom']), { files: { 'd.md': 'New.' } });
+  const unlocked = fakeClient(item(['swarm/needs-shaping']), { files: { 'd.md': 'New.' } });
   await assert.rejects(run('describe', ['COU-7', 'd.md'], unlocked), (e) => e instanceof ShapeUsage && /claim it first/.test(e.message));
   const c = fakeClient(item(), { files: { 'd.md': '### Scope\n\n- New.' } });
   assert.deepEqual(await run('describe', ['COU-7', 'd.md'], c), { key: 'COU-7', described: true });
@@ -88,16 +88,16 @@ test('create: a child in Backlog, marked shaped, titled by its heading, with its
 test('labels: product labels only; attach: known file types', async () => {
   const c = fakeClient(item(), { files: { 'b.png': Buffer.from('png!'), 'x.exe': Buffer.from('') } });
   assert.deepEqual(await run('labels', ['COU-7', '+platform/web', '-area/api'], c), { key: 'COU-7', added: ['platform/web'], removed: ['area/api'] });
-  await assert.rejects(run('labels', ['COU-7', '-swarm/groom'], c), /own commands/);
+  await assert.rejects(run('labels', ['COU-7', '-swarm/needs-shaping'], c), /own commands/);
   assert.deepEqual(await run('attach', ['COU-7', 'b.png'], c), { key: 'COU-7', attached: ['b.png'] });
   await assert.rejects(run('attach', ['COU-7', 'x.exe'], c), /attach takes/);
-  assert.deepEqual(c.log, ['add platform/web', 'remove area/api', 'attach b.png image/png 4']);
+  assert.deepEqual(c.log, ['remove area/api', 'add platform/web', 'attach b.png image/png 4'], 'removals first, so a one-label group can swap');
 });
 
 test('shaped: the summary, then swarm/shaped in place of the request, and the lock comes off', async () => {
-  const c = fakeClient(item(['swarm/design', 'swarm/groom', 'swarm/agent/claude-shape-1', 'platform/web']));
+  const c = fakeClient(item(['swarm/design', 'swarm/needs-shaping', 'swarm/agent/claude-shape-1', 'platform/web']));
   await assert.rejects(run('shaped', ['COU-7'], c), /Usage/);
   assert.deepEqual(await run('shaped', ['COU-7', 'Spec in getcouchy/couchy-design#40.'], c), { key: 'COU-7', shaped: true, released: ['COU-7'] });
-  assert.deepEqual(c.log, ['comment Spec in getcouchy/couchy-design#40.', 'add swarm/shaped', 'remove swarm/groom', 'remove swarm/design', 'remove swarm/agent/claude-shape-1']);
+  assert.deepEqual(c.log, ['comment Spec in getcouchy/couchy-design#40.', 'add swarm/shaped', 'remove swarm/needs-shaping', 'remove swarm/design', 'remove swarm/agent/claude-shape-1']);
   assert.deepEqual(c.item.labels.map((l) => l.name), ['platform/web', 'swarm/shaped']);
 });

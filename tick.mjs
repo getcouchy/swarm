@@ -4,23 +4,30 @@
 // from workitems.mjs's tracker() (pull requests on GitHub, work items in the tracker),
 // so tests pass a fake.
 
-import { isKey } from './workitems.mjs';
+import { LabelGroupTaken, isKey } from './workitems.mjs';
 import { likelyWork } from './preflight.mjs';
 import {
   AGENT_PREFIX, DESK, FOCUS, REVIEWED, blockGraph, closingIssues, downstream, partOfIssues, priorityRank, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
-  labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, providers, refsOf, shapeKind, whyNotClaimable, whyNotShapeable,
+  labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, openParents, providers, refsOf, shapeKind, whyNotClaimable, whyNotShapeable,
 } from './rules.mjs';
 
 /**
  * Add the provider's label, then read the issue back: if another provider
- * labelled it at the same moment, the alphabetically first keeps it.
+ * labelled it at the same moment, the alphabetically first keeps it. Where
+ * the locks are a group that takes one label (Linear's `swarm-agent`), the
+ * tracker refuses the second instead, and that agent has lost.
  * Returns true when `me` holds the issue.
  */
 export async function claim(gh, number, me) {
   const before = await gh.issue(number);
   const holders = providers(before);
   if (holders.length && !holders.includes(me)) return false;
-  await gh.addLabel(number, AGENT_PREFIX + me);
+  try {
+    await gh.addLabel(number, AGENT_PREFIX + me);
+  } catch (e) {
+    if (e instanceof LabelGroupTaken) return false;
+    throw e;
+  }
   if (gh.dryRun) return true;
   const after = await gh.issue(number);
   if (claimWinner(after) === me) {
@@ -166,7 +173,7 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
   // 5. Then one ready work item, and only one in focus: with none claimable
   // the tick has nothing to start. Highest priority first; between equals, the one more
   // work waits on.
-  const ctx = { can, linked };
+  const ctx = { can, linked, parents: openParents(open) };
   const skipped = [];
   const candidates = [];
   for (const issue of open.filter((i) => isReady(i) && focused.of(i))) {
