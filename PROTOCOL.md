@@ -227,6 +227,9 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    that no other agent is on, with a failed check, the `conflicts-with-main`
    label, or a review whose verdict is `changes` since its last push. It
    doesn't matter who opened it. Lock it, check out its branch, fix it, push.
+   A held PR is not one: with `swarm/needs-human` leave it until the person
+   answers, and with `swarm/hold` a failed check or a conflict waits for what
+   the PR is held for. Only a `changes` verdict on a `swarm/hold` PR is work.
 2. **Keep auto-merge right.** It is the default for every `swarm/pr` PR (see
    "Merging"). Where `reviewed` is a required check, any non-draft one with
    auto-merge off: turn it on. Where it isn't, turn it on for one whose latest
