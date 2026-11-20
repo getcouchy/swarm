@@ -284,8 +284,8 @@ test('commands take a key, new or old; the event names the item by repository, n
   assert.match(fake.comments.i1[0].body, /Old key\?/);
 });
 
-test('sweep: work items follow their PRs, each link added once', async () => {
-  const fake = fakeLinear({ issues: [item(1, { stateId: 's-backlog' }), item(2, { stateId: 's-doing' })] });
+test('sweep: work items follow their PRs, each link added once; Backlog stays Backlog', async () => {
+  const fake = fakeLinear({ issues: [item(1, { stateId: 's-todo' }), item(2, { stateId: 's-doing' }), item(3, { stateId: 's-backlog' })] });
   const now = Date.parse('2026-11-16T12:00:00Z');
   const gh = t({
     repo: 'getcouchy/couchy',
@@ -294,10 +294,14 @@ test('sweep: work items follow their PRs, each link added once', async () => {
       { number: 61, title: 'Shut', body: 'Closes COU-1', merged_at: null, html_url: 'https://github.com/x/61' },
     ],
   }, client(fake));
-  const pulls = [{ number: 57, title: 'Work', body: 'Part of COUCHYUX-1', html_url: 'https://github.com/x/57' }];
+  const pulls = [
+    { number: 57, title: 'Work', body: 'Part of COUCHYUX-1', html_url: 'https://github.com/x/57' },
+    { number: 58, title: 'Early', body: 'Closes COU-3', html_url: 'https://github.com/x/58' },
+  ];
   const { lines, linked } = await followPulls(gh, { pulls, now });
   assert.deepEqual(lines, ['COU-1 is In Progress: PR #57 is open for it.', 'COU-2 is Done: PR #60 merged.']);
-  assert.deepEqual([fake.issues[0].stateId, fake.issues[1].stateId], ['s-doing', 's-done']);
+  assert.deepEqual(fake.issues.map((i) => i.stateId), ['s-doing', 's-done', 's-backlog'], 'an open PR does not take an item out of Backlog');
+  assert.deepEqual(fake.attachments.i3.map((a) => a.url), ['https://github.com/x/58']);
   assert.deepEqual(fake.attachments.i1.map((a) => [a.url, a.title]), [['https://github.com/x/57', 'PR #57: Work']]);
   const again = await followPulls(gh, { pulls, stored: `<!-- swarm-linked: ${JSON.stringify(linked)} -->`, now });
   assert.deepEqual(again.lines, []);

@@ -339,8 +339,9 @@ export function readLinked(body) {
 
 /**
  * Work items follow their pull requests. A PR that closes an item, or is part
- * of it, moves it from Backlog or Todo to In Progress and puts a link to
- * itself on it; one that closes it and merged in the last two days moves it
+ * of it, moves it from Todo to In Progress and puts a link to itself on it.
+ * Backlog is the owner's: an item there only gets the link, so one the owner
+ * moves back to Backlog stays there while its PR is open. One that closes it and merged in the last two days moves it
  * to QA when it needs the owner's QA (rules.mjs, needsQA), else to Done. Each
  * merge moves its item once (an `item>pr` pair beside the `item<pr` links), so
  * an item the owner sends back to Todo stays there. A PR may name an item by
@@ -361,7 +362,7 @@ export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) 
     for (const ref of new Set([...closingIssues(pr.body), ...partOfIssues(pr.body)])) {
       const item = await gh.findIssue(ref);
       if (!item || item.state !== 'open') continue;
-      if (item.stage === 'backlog' || item.stage === 'unstarted') {
+      if (item.stage === 'unstarted') {
         await gh.setStage(item.number, 'started');
         lines.push(`${item.number} is In Progress: PR #${pr.number} is open for it.`);
       }

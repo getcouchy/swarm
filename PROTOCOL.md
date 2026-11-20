@@ -50,8 +50,9 @@ What a work item's state means here:
 | Canceled | not doing it |
 
 The owner moves work from Backlog to Todo; that is the approval. The tools
-move it to In Progress when an agent claims it, and the sweep keeps it there
-while a pull request for it is open. When one that closes it merges, the sweep
+move it to In Progress when an agent claims it, and the sweep moves it from
+Todo to In Progress while a pull request for it is open. Nothing moves work
+out of Backlog but the owner, even with a pull request open for it. When one that closes it merges, the sweep
 moves it to QA if it changes what people see and use, and to Done if not:
 QA when it carries `swarm/qa`, `platform/web`, `platform/ios`, `area/app` or
 `web/ux-buildout`, or none of `area/api`, `area/tooling` and `area/ci`. Add
@@ -570,8 +571,8 @@ A scheduled job runs `sweep.mjs` for a home repository. For getcouchy/couchy
 it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
 "Agent sweep"). It removes a lapsed claim and settles a doubled one, keeps
 `swarm/blocked` on the open work items that have an open blocker, moves
-work items with their pull requests (In Progress with a link while one is
-open, QA or Done once one that closes them merges), and it keeps the **Agent desk**
+work items with their pull requests (In Progress from Todo, never Backlog, with
+a link while one is open, QA or Done once one that closes them merges), and it keeps the **Agent desk**
 work item in Linear current with whatever is overdue: a ready work item in focus
 no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
