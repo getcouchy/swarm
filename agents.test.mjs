@@ -158,6 +158,18 @@ test('changes requested stop counting once the author pushes', () => {
   );
 });
 
+test('a held PR is not fix work, except for a changes verdict on one held with swarm/hold', () => {
+  const checks = [{ name: 'smoke', conclusion: 'failure' }];
+  const reviews = [{ body: '<!-- agent: grok verdict: changes -->', state: 'COMMENTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(1) }];
+  const held = (label) => pull(9, ['swarm/pr', 'conflicts-with-main', label]);
+  // Waiting on a person: nothing moves until the label comes off.
+  assert.deepEqual(fixReasons(held('swarm/needs-human'), { checks, reviews, pushedAt: ago(2) }), []);
+  // Waiting on something else to land: a red check or a conflict is expected
+  // until it does, but a reviewer's changes are about this PR's own code.
+  assert.deepEqual(fixReasons(held('swarm/hold'), { checks }), []);
+  assert.deepEqual(fixReasons(held('swarm/hold'), { checks, reviews, pushedAt: ago(2) }), ['changes requested']);
+});
+
 test('claim: taken, won, and lost to a simultaneous claim', async () => {
   let gh = fake({ issues: [issue(1, ['couchy-ux/approved', 'swarm/agent/codex'])] });
   assert.equal(await claim(gh, 1, 'grok'), false);
@@ -209,6 +221,13 @@ test('next: a label is a lock on work in progress, and any agent carries the swa
   for (const label of ['swarm/needs-human', 'swarm/hold']) {
     job = await next(fake({ issues: [], pulls: [a, pull(21, ['swarm/pr', label], { body: 'Closes #2' })], reviews: ok }), { me: 'codex' });
     assert.equal(job.job, 'none', `${label} holds the merge`);
+  }
+  // A held PR's red check is not a fix job. It still gets its review.
+  for (const label of ['swarm/needs-human', 'swarm/hold']) {
+    job = await next(fake({ issues: [], pulls: [pull(20, ['swarm/pr', label], { body: 'Closes #1' })], checks: failing }), { me: 'codex' });
+    assert.deepEqual([job.job, job.pull], ['review', 20], `${label} is not offered as a fix`);
+    job = await next(fake({ issues: [], pulls: [pull(20, ['swarm/pr', label], { body: 'Closes #1' })], checks: failing, reviews: { 20: rev('ok') } }), { me: 'codex' });
+    assert.equal(job.job, 'none', `${label}, once reviewed, is no job at all`);
   }
   // A failed check is work, not a merge.
   job = await next(fake({ issues: [], pulls: [b], reviews: ok, checks: { sha21: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex', doClaim: false });

@@ -415,12 +415,23 @@ export const FAILED = new Set(['failure', 'timed_out', 'startup_failure', 'actio
  * Why a PR is its author's turn again: conflicts, a failed check, or changes
  * requested since the last push. checks: check runs of the head commit;
  * pushedAt: ISO time of the head commit.
+ *
+ * A held PR is nobody's turn for what the hold explains. With
+ * `swarm/needs-human` nothing counts until the person answers. With
+ * `swarm/hold` a failed check or a conflict doesn't count: the PR waits for
+ * something else to land, and is expected to be red or behind until it does.
+ * A `changes` verdict still counts there, since a PR held for a second review
+ * has to be able to act on that review.
  */
 export function fixReasons(pr, { checks = [], reviews = [], pushedAt = null } = {}) {
+  const names = labelNames(pr);
+  if (names.includes(NEEDS_HUMAN)) return [];
   const reasons = [];
-  if (labelNames(pr).includes(CONFLICT)) reasons.push('conflicts with main');
-  const failed = checks.filter((c) => FAILED.has(c.conclusion)).map((c) => c.name);
-  if (failed.length) reasons.push(`failed checks: ${[...new Set(failed)].join(', ')}`);
+  if (!names.includes(HOLD)) {
+    if (names.includes(CONFLICT)) reasons.push('conflicts with main');
+    const failed = checks.filter((c) => FAILED.has(c.conclusion)).map((c) => c.name);
+    if (failed.length) reasons.push(`failed checks: ${[...new Set(failed)].join(', ')}`);
+  }
   const last = lastVerdict(pr, reviews);
   if (last?.verdict === 'changes' && (!pushedAt || last.at > pushedAt)) reasons.push('changes requested');
   return reasons;
