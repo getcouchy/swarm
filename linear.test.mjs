@@ -39,7 +39,8 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
     state: (({ id, name, type }) => ({ id, name, type }))(state(i.stateId)),
     labels: { nodes: i.labelIds.map((id) => labels.find((l) => l.id === id)) },
     parent: i.parentId ? { id: i.parentId } : null,
-    cycle: i.sprint ? { id: 'cy1', isActive: true } : null,
+    cycle: i.sprint ? { id: 'cy1', isActive: true } : i.cycleId ? { id: i.cycleId, isActive: false } : null,
+    project: i.projectId ? { id: i.projectId } : null,
   });
   const rel = (i) => ({ identifier: `COU-${i.number}`, state: { type: state(i.stateId).type, name: state(i.stateId).name } });
   const page = (nodes) => ({ nodes, pageInfo: { hasNextPage: false, endCursor: null } });
@@ -98,9 +99,9 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
         return reply({ issueUpdate: touch(i) });
       }
       case 'issueCreate': {
-        const { teamId, labelIds, parentId = null, priority = 0, stateId, title, description } = v.input;
+        const { teamId, labelIds, parentId = null, priority = 0, stateId, title, description, projectId = null, cycleId = null } = v.input;
         assert.equal(teamId, 't1');
-        const made = { id: `new${issues.length + 1}`, number: 900 + issues.length, title, description, priority, stateId, labelIds, parentId, createdAt: '2026-11-18T00:00:00Z', updatedAt: '2026-11-18T00:00:00Z' };
+        const made = { id: `new${issues.length + 1}`, number: 900 + issues.length, title, description, priority, stateId, labelIds, parentId, projectId, cycleId, createdAt: '2026-11-18T00:00:00Z', updatedAt: '2026-11-18T00:00:00Z' };
         issues.push(made);
         return reply({ issueCreate: { issue: raw(made) } });
       }
@@ -465,6 +466,24 @@ test('shaping: child items are made in Backlog under their parent; relations; fi
   assert.deepEqual((await items.attachments('COU-1')).map((a) => [a.name, a.type, a.size]), [['board.png', 'image/png', 3]]);
   await items.addLink('COU-1', 'https://github.com/x/1', 'PR #1');
   assert.equal((await items.attachments('COU-1')).length, 1, 'links are not uploads');
+});
+
+test('shaping: a slice goes in the project and the cycle of the item it came from, with no parent', async () => {
+  const fake = fakeLinear({
+    issues: [item(1, { projectId: 'p1', sprint: true, labelIds: ['lw', 'la'] }), item(2, { cycleId: 'cy0' })],
+    labels: [{ id: 'lw', name: 'web', parent: { id: 'g-platform', name: 'platform' } }, { id: 'la', name: 'app', parent: { id: 'g-area', name: 'area' }, retiredAt: '2026-11-20T00:00:00Z' }],
+  });
+  const items = t({ repo: 'getcouchy/couchy' }, client(fake));
+  const from = await items.issue('COU-1');
+  assert.deepEqual([from.project, from.cycle, from.sprint], ['p1', 'cy1', true]);
+  assert.deepEqual(from.labels, [{ name: 'platform/web' }, { name: 'area/app', retired: true }], 'a retired label is still read, and known as retired');
+  const past = await items.issue('COU-2');
+  assert.deepEqual([past.project, past.cycle, past.sprint], [null, 'cy0', false]);
+
+  const slice = await items.createIssue('Slice one', 'Body.', [], { priority: 'high', project: from.project, cycle: from.cycle });
+  const made = fake.issues.at(-1);
+  assert.deepEqual([made.projectId, made.cycleId, made.parentId, made.stateId], ['p1', 'cy1', null, 's-backlog']);
+  assert.deepEqual([slice.project, slice.parent], ['p1', null]);
 });
 
 test('dry run: reads happen, writes are logged and not made', async () => {

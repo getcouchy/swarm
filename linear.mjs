@@ -73,7 +73,7 @@ export function linearPlace(name) {
 const groupTaken = (e) => e.errors?.find((x) => /not exclusive/i.test(x.message ?? ''));
 
 const ITEM = `id identifier title description priority url createdAt updatedAt
-  state { id name type } labels(first: 50) { nodes { id name parent { name } } } parent { id } cycle { id isActive }`;
+  state { id name type } labels(first: 50) { nodes { id name retiredAt parent { name } } } parent { id } cycle { id isActive } project { id }`;
 const COMMENT = 'id body createdAt updatedAt';
 const RELATED = 'identifier state { type name }';
 
@@ -235,7 +235,8 @@ export function linearClient({
       id: raw.id,
       title: raw.title,
       body: raw.description ?? '',
-      labels: names.map((name) => ({ name })),
+      // A label retired in Linear stays on the items that had it; `retired` says it can't be given to another.
+      labels: raw.labels.nodes.map((l, i) => ({ name: names[i], ...(l.retiredAt ? { retired: true } : {}) })),
       labelIds: raw.labels.nodes.map((l) => l.id),
       stage,
       priority: PRIORITY[raw.priority] ?? 'none',
@@ -243,6 +244,8 @@ export function linearClient({
       repo: itemRepo,
       aliases: aliasesFor(raw.identifier, itemRepo, map),
       parent: raw.parent?.id ?? null,
+      project: raw.project?.id ?? null,
+      cycle: raw.cycle?.id ?? null,
       sprint: Boolean(raw.cycle?.isActive),
       created_at: raw.createdAt,
       updated_at: raw.updatedAt,
@@ -433,13 +436,15 @@ export function linearClient({
       return true;
     },
     links: async (key) => (await attachmentsOf(await need(key))).filter((a) => !isUpload(a.url)).map((a) => ({ url: a.url, title: a.title })),
-    create: async ({ title, body, labels = [], parent = null, priority = null }) => {
+    create: async ({ title, body, labels = [], parent = null, priority = null, project = null, cycle = null }) => {
       const c = await context();
       const ids = [];
       for (const name of labels) ids.push(await labelId(name));
       const input = {
         teamId: c.teamId, title, description: body, labelIds: ids.filter(Boolean), stateId: stateFor(c, 'backlog')?.id,
         ...(parent ? { parentId: (await need(parent)).id } : {}),
+        ...(project ? { projectId: project } : {}),
+        ...(cycle ? { cycleId: cycle } : {}),
         ...(priority && PRIORITY.includes(priority) ? { priority: PRIORITY.indexOf(priority) } : {}),
       };
       const raw = (await gql(`mutation($input: IssueCreateInput!) { issueCreate(input: $input) { issue { ${ITEM} } } }`,
