@@ -253,8 +253,8 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    reviewed (steps 1 and 3), so written work lands.
 5. **Start one new work item in focus** (see "Focus"): one in Todo (or In
    Progress with nobody on it and no PR open) that has no `swarm/agent/*`
-   label, has no open sub-issues (it was split into them: take one of those),
-   has no open blockers, and
+   label, has no open sub-issues (someone split it into them by hand: take
+   one of those), has no open blockers, and
    that you can take (see "What you may take") and that is not waiting for
    shaping (`swarm/needs-shaping` or `swarm/design`), taken in the order "Focus"
    gives. Nothing outside focus is started. Lock it, read it with its
@@ -522,8 +522,9 @@ it already holds, else the next one the owner labelled `swarm/needs-shaping`
 or `swarm/design` that is in Backlog or Todo, nobody holds, and is not
 `swarm/hands-off`. Labelled work in focus comes
 first; then priority; then the item more open work waits on. It reviews,
-fixes and merges nothing, and never moves a work item's state: the owner
-moves shaped work to Todo, and that is the approval. While an item carries
+fixes and merges nothing, and never moves a work item's state, but to close
+one its slices replace (below): the owner moves shaped work to Todo, and
+that is the approval. While an item carries
 either label no tick builds it, even in Todo.
 
 Read the work item, its comments and its images first: `agent.mjs show
@@ -550,12 +551,34 @@ holds, in this shape:
 Set the product labels it needs, one from each group (`agent.mjs labels <key>
 -area/api +area/app +platform/web`): its `area`, its `platform`, its `repo`
 when it isn't getcouchy/couchy, and `swarm/needs/<thing>` when it can't be
-checked without it. Work too big for one PR of a day or
-less becomes slices: create each with `agent.mjs create <key> <file.md>`
-(first line `# <title>`; `--labels`, `--blocked-by`, `--priority`). Slices are
-made in Backlog, as sub-issues of the item, already `swarm/shaped`, with its
-`repo` label unless `--labels` names another. While any is open no tick builds
-the item itself. Don't create work outside the item you hold.
+checked without it.
+
+Work too big for one PR of a day or less becomes **slices**: work items of
+their own beside the item, never sub-issues of it. Set the item's labels
+first, then create each slice with `agent.mjs create <key> <file.md>` (first
+line `# <title>`). A slice is made in Backlog, already `swarm/shaped`, with
+the item's project, priority and sprint, and its product labels (those
+Linear hasn't retired), `swarm/focus` and `swarm/needs/<thing>`.
+`--labels=area/api,-platform/web` changes the labels for one slice: a label
+takes the place of the item's in the same group, and `-<name>` leaves one of
+the item's off. `--priority` gives it another priority. `--blocked-by` names
+what it waits for: other slices, and whatever blocks the item.
+
+The item doesn't stay behind to hold its slices. It ends one of two ways:
+
+- **One slice finishes the work**, every other slice landing before it: the
+  item becomes that slice. Don't create it. Rewrite the item as it with
+  `agent.mjs describe <key> <file.md> --title="<the slice's title>"`, then
+  `agent.mjs blocked-by <key> <the slices it waits for>`. Whatever waited on
+  the item, and every older name for it, then waits for all of the work.
+- **The work ends in several slices at once**: create them all, and finish
+  with `agent.mjs shaped <key> "<summary>" --replaced-by=<every slice's
+  key>`. Whatever waited on the item then waits on the last slices (those no
+  other slice waits on), and the item is closed as Canceled with a comment
+  that lists them. A closed item blocks nothing, so never close one any
+  other way.
+
+Don't create work outside the item you hold.
 
 **`swarm/design`** asks for the grooming and the design. Clone
 getcouchy/couchy-design beside your checkout, read its `README.md` and
@@ -575,7 +598,8 @@ and the tick moves on.
 **Done:** `agent.mjs shaped <key> "<summary>"` comments the summary (what
 changed, the slices, the design PR, and anything the owner should decide),
 swaps `swarm/needs-shaping` or `swarm/design` for `swarm/shaped`, and takes your lock
-off. Shaping that isn't finished when the tick ends stays locked until
+off. With `--replaced-by` it closes the item instead of marking it shaped
+(above). Shaping that isn't finished when the tick ends stays locked until
 `finish`, keeps its label, and the next shaping tick carries it on from the
 comments and the PR.
 

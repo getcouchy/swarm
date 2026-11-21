@@ -5,19 +5,19 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
-import { AGENT_PREFIX, DESIGN, GROOM, NS, SHAPED, labelNames, providers } from './rules.mjs';
+import { AGENT_PREFIX, DESIGN, FOCUS, GROOM, NEEDS_PREFIX, NS, SHAPED, blockGraph, labelNames, providers } from './rules.mjs';
 
 export const SHAPE_COMMANDS = ['show', 'images', 'describe', 'create', 'blocked-by', 'labels', 'attach', 'shaped'];
 
 export const SHAPE_USAGE = [
   'show <key>',
   'images <key> [--dir=<path>]',
-  'describe <key> <file.md>',
-  'create <parent key> <file.md> [--title=<title>] [--labels=a,b] [--blocked-by=<keys>] [--priority=<p>]',
+  'describe <key> <file.md> [--title=<title>]',
+  'create <key> <file.md> [--title=<title>] [--labels=a,-b] [--blocked-by=<keys>] [--priority=<p>]',
   'blocked-by <key> <keys>',
   'labels <key> +<name> -<name>…',
   'attach <key> <file>…',
-  'shaped <key> "<summary>"',
+  'shaped <key> "<summary>" [--replaced-by=<slice keys>]',
 ].join(' | ');
 
 /** A command line a shaping command can't run: commands.mjs turns it into a UsageError. */
@@ -44,6 +44,36 @@ export function titled(md, title) {
   if (title) return { title, body: md };
   if (!h) throw new ShapeUsage('create needs --title, or a file whose first line is "# <title>".');
   return { title: h[1].trim(), body: rest.join('\n').replace(/^\n+/, '') };
+}
+
+const group = (label) => (label.includes('/') ? label.slice(0, label.lastIndexOf('/') + 1) : null);
+
+/**
+ * The labels of a slice of `item`: `swarm/shaped`, then the item's own that
+ * say what the work is and how much it matters (its product labels,
+ * `swarm/focus`, `swarm/needs/<thing>`), then `given`. A given label takes the
+ * place of the item's label in the same group (`area/api` for `area/app`);
+ * `-<name>` leaves one of the item's off, and one the tracker has retired
+ * stays behind. The other swarm/ labels are about the item itself, and none
+ * is the agent's to add.
+ */
+export function sliceLabels(item, given = []) {
+  const off = new Set(given.filter((l) => l.startsWith('-')).map((l) => l.slice(1)));
+  const added = given.filter((l) => !l.startsWith('-') && !l.startsWith(NS));
+  const groups = new Set(added.map(group).filter(Boolean));
+  const kept = labelNames({ labels: item.labels.filter((l) => !l.retired) })
+    .filter((l) => !l.startsWith(NS) || l === FOCUS || l.startsWith(NEEDS_PREFIX))
+    .filter((l) => !off.has(l) && !groups.has(group(l)));
+  return [...new Set([SHAPED, ...kept, ...added])];
+}
+
+/**
+ * Reads the open work items that wait on one: by a "blocked by" relation, or
+ * by naming it after "Blocked by" in their description.
+ */
+async function waiters(client) {
+  const named = blockGraph(await client.openIssues());
+  return async (item) => [...new Set([...await client.blocking(item), ...(named.get(item.number) ?? [])])];
 }
 
 /**
@@ -110,7 +140,8 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
     const body = readFile(file, 'utf8');
     // The description it replaces stays readable in a comment.
     if (item.body.trim()) await client.comment(key, `The description before ${me} rewrote it:\n\n${item.body}\n\n<!-- agent: ${me} -->`);
-    await client.editIssue(key, { body });
+    const title = opt(args, 'title');
+    await client.editIssue(key, { body, ...(title ? { title } : {}) });
     return { key, described: true };
   }
 
@@ -119,14 +150,16 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
     const [file] = rest;
     if (!file) throw new ShapeUsage(`Usage: agent.mjs ${SHAPE_USAGE.split(' | ').find((u) => u.startsWith('create'))}`);
     const { title, body } = titled(readFile(file, 'utf8'), opt(args, 'title'));
-    const given = keys(opt(args, 'labels'));
-    // A slice is for the parent's repository unless it says otherwise.
-    const repo = given.some((l) => l.startsWith('repo/')) ? [] : labelNames(item).filter((l) => l.startsWith('repo/'));
-    const labels = [...new Set([SHAPED, ...given, ...repo])].filter((l) => l === SHAPED || !l.startsWith(NS));
-    const made = await client.createIssue(title, body, labels, { parent: key, priority: opt(args, 'priority') ?? null });
+    const labels = sliceLabels(item, keys(opt(args, 'labels')));
+    // A sibling of the item, not its child: what it needs from the item, it is given here.
+    const made = await client.createIssue(title, body, labels, {
+      priority: opt(args, 'priority') ?? item.priority ?? null,
+      project: item.project ?? null,
+      cycle: item.sprint ? item.cycle ?? null : null,
+    });
     const blockedBy = keys(opt(args, 'blocked-by'));
     if (made && blockedBy.length) await client.relate(made.key, 'blocked_by', blockedBy);
-    return { parent: key, created: made?.key ?? null, title, labels, blockedBy, url: made?.html_url ?? null };
+    return { from: key, created: made?.key ?? null, title, labels, blockedBy, url: made?.html_url ?? null };
   }
 
   if (cmd === 'blocked-by') {
@@ -164,12 +197,35 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
   if (cmd === 'shaped') {
     holding();
     const text = rest.join(' ').trim();
-    if (!text) throw new ShapeUsage('Usage: agent.mjs shaped <key> "<what you did, what the owner should look at, and any design PR>"');
-    await client.comment(key, `${text}\n\n<!-- agent: ${me} -->`);
-    await client.addLabel(key, SHAPED);
-    for (const label of [GROOM, DESIGN]) if (labelNames(item).includes(label)) await client.removeLabel(key, label);
+    if (!text) throw new ShapeUsage('Usage: agent.mjs shaped <key> "<what you did, what the owner should look at, and any design PR>" [--replaced-by=<slice keys>]');
+    const request = async () => {
+      for (const label of [GROOM, DESIGN]) if (labelNames(item).includes(label)) await client.removeLabel(key, label);
+    };
+    const slices = keys(opt(args, 'replaced-by'));
+    if (!slices.length) {
+      await client.comment(key, `${text}\n\n<!-- agent: ${me} -->`);
+      await client.addLabel(key, SHAPED);
+      await request();
+      await client.removeLabel(key, AGENT_PREFIX + me);
+      return { key, shaped: true, released: [key] };
+    }
+    // The item was split into slices and none of them is the item rewritten: it closes. A closed item blocks
+    // nothing, so first whatever waited on it waits on the slices that finish its work: those no other slice waits on.
+    const found = await Promise.all(slices.map((k) => client.issue(k)));
+    const missing = slices.filter((k, i) => !found[i]);
+    if (missing.length) throw new ShapeUsage(`${missing.join(', ')}: no such work item.`);
+    const waitingOn = await waiters(client);
+    const last = [];
+    for (const slice of found) if (!(await waitingOn(slice)).some((k) => slices.includes(k))) last.push(slice.key);
+    if (!last.length) throw new ShapeUsage(`${slices.join(', ')} wait on each other in a circle: none of them finishes ${key}.`);
+    const waiting = (await waitingOn(item)).filter((k) => !slices.includes(k));
+    for (const k of waiting) await client.relate(k, 'blocked_by', last);
+    const moved = waiting.length ? ` ${waiting.join(', ')} now wait${waiting.length === 1 ? 's' : ''} on ${last.join(', ')}.` : '';
+    await client.comment(key, `${text}\n\nClosed: ${slices.join(', ')} replace it.${moved}\n\n<!-- agent: ${me} -->`);
+    await request();
     await client.removeLabel(key, AGENT_PREFIX + me);
-    return { key, shaped: true, released: [key] };
+    await client.setStage(key, 'cancelled');
+    return { key, shaped: true, closed: true, replacedBy: slices, waiting, waitOn: last, released: [key] };
   }
   throw new ShapeUsage(`Unknown command ${cmd}.`);
 }

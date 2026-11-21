@@ -4,14 +4,19 @@ import { test } from 'node:test';
 import { ShapeUsage, shapeCommand, titled } from './shape.mjs';
 
 /** A work item's tracker, in memory: one item and what the commands did to it. */
-function fakeClient(item, { comments = [], attachments = [], files = {} } = {}) {
+function fakeClient(item, { comments = [], attachments = [], files = {}, others = [], blocking = {} } = {}) {
   const log = [];
   const labels = () => item.labels.map((l) => l.name);
+  const known = () => [item, ...others];
   return {
     log,
     item,
     files,
-    issue: async () => structuredClone(item),
+    made: [],
+    issue: async (key) => structuredClone(known().find((i) => i.key === key) ?? null),
+    openIssues: async () => structuredClone(known()),
+    blocking: async (i) => blocking[i.key] ?? [],
+    setStage: async (key, stage) => { log.push(`stage ${key} ${stage}`); return stage; },
     comments: async () => comments,
     subIssues: async () => ['COU-9'],
     seen: (k) => (k === 'COU-9' ? { title: 'Child' } : null),
@@ -20,10 +25,10 @@ function fakeClient(item, { comments = [], attachments = [], files = {} } = {}) 
     attachmentUrl: async (key, id) => `https://uploads.linear.app/w/${id}/`,
     download: async (url) => ({ type: url.endsWith('/a1/') ? 'image/png' : 'image/jpeg', bytes: Buffer.from(url) }),
     comment: async (key, md) => log.push(`comment ${md.split('\n')[0]}`),
-    editIssue: async (key, { body }) => { log.push(`describe ${body}`); },
+    editIssue: async (key, { body, title }) => { log.push(`describe ${body}${title ? ` as ${title}` : ''}`); },
     addLabel: async (key, name) => { log.push(`add ${name}`); if (!labels().includes(name)) item.labels.push({ name }); },
     removeLabel: async (key, name) => { log.push(`remove ${name}`); item.labels = item.labels.filter((l) => l.name !== name); },
-    createIssue: async (title, body, ls, opts) => { log.push(`create ${title} [${ls}] under ${opts.parent} ${opts.priority}`); return { key: 'COU-50', html_url: 'u' }; },
+    createIssue: async function (title, body, ls, opts) { this.made.push({ title, body, labels: ls, ...opts }); log.push(`create ${title}`); return { key: 'COU-50', html_url: 'u' }; },
     relate: async (key, kind, keys) => log.push(`relate ${key} ${kind} ${keys}`),
     attach: async (key, f) => { log.push(`attach ${f.name} ${f.type} ${f.bytes.length}`); return { id: 'x', name: f.name }; },
   };
@@ -76,13 +81,36 @@ test('changes need the lock; describe keeps the old description in a comment', a
   assert.deepEqual(c.log, ['comment The description before claude-shape-1 rewrote it:', 'describe ### Scope\n\n- New.']);
 });
 
-test('create: a child in Backlog, marked shaped, titled by its heading, with its blockers; swarm labels are not the agent\'s to add', async () => {
+test('describe: --title renames the item too, for one rewritten as its last slice', async () => {
+  const c = fakeClient(item(), { files: { 'd.md': '### Scope\n\n- The last part.' } });
+  await run('describe', ['COU-7', 'd.md', '--title=Seven 3: the last part'], c);
+  assert.equal(c.log.at(-1), 'describe ### Scope\n\n- The last part. as Seven 3: the last part');
+});
+
+const SPLIT = ['swarm/needs-shaping', 'swarm/agent/claude-shape-1', 'swarm/focus', 'swarm/needs/ios-sim', 'platform/web', 'area/app', 'repo/couchy-agent'];
+
+test('create: a slice is a sibling, not a child, with the item\'s product labels, focus, needs, project, priority and sprint', async () => {
   assert.deepEqual(titled('# Slice one\n\nBody.'), { title: 'Slice one', body: 'Body.' });
   assert.throws(() => titled('No heading'), ShapeUsage);
-  const c = fakeClient(item(), { files: { 's.md': '# Slice one\n\n### Scope\n\n- this' } });
-  const out = await run('create', ['COU-7', 's.md', '--labels=platform/web,swarm/focus', '--blocked-by=COU-2,COU-3', '--priority=high'], c);
-  assert.deepEqual([out.created, out.labels], ['COU-50', ['swarm/shaped', 'platform/web']]);
-  assert.deepEqual(c.log, ['create Slice one [swarm/shaped,platform/web] under COU-7 high', 'relate COU-50 blocked_by COU-2,COU-3']);
+  const c = fakeClient(item(SPLIT, { project: 'p1', cycle: 'cy1', sprint: true }), { files: { 's.md': '# Slice one\n\n### Scope\n\n- this' } });
+  const out = await run('create', ['COU-7', 's.md'], c);
+  assert.deepEqual(c.made, [{
+    title: 'Slice one', body: '### Scope\n\n- this',
+    labels: ['swarm/shaped', 'swarm/focus', 'swarm/needs/ios-sim', 'platform/web', 'area/app', 'repo/couchy-agent'],
+    priority: 'high', project: 'p1', cycle: 'cy1',
+  }]);
+  assert.deepEqual([out.from, out.created, out.url], ['COU-7', 'COU-50', 'u']);
+  assert.equal('parent' in out, false);
+});
+
+test('create: --labels adds, takes the place of the item\'s label in the same group, and drops one with a minus; swarm labels are not the agent\'s to add; --priority wins', async () => {
+  // In an earlier cycle, not the sprint: the slice goes in none.
+  const c = fakeClient(item(SPLIT, { project: null, cycle: 'cy0', sprint: false }), { files: { 's.md': '# API slice\n\nBody.' } });
+  const out = await run('create', ['COU-7', 's.md', '--labels=area/api,-platform/web,-swarm/needs/ios-sim,swarm/hold', '--blocked-by=COU-2,COU-3', '--priority=low'], c);
+  assert.deepEqual(c.made[0].labels, ['swarm/shaped', 'swarm/focus', 'repo/couchy-agent', 'area/api']);
+  assert.deepEqual([c.made[0].priority, c.made[0].project, c.made[0].cycle], ['low', null, null]);
+  assert.deepEqual(out.labels, c.made[0].labels);
+  assert.deepEqual(c.log, ['create API slice', 'relate COU-50 blocked_by COU-2,COU-3']);
 });
 
 test('labels: product labels only; attach: known file types', async () => {
@@ -100,4 +128,41 @@ test('shaped: the summary, then swarm/shaped in place of the request, and the lo
   assert.deepEqual(await run('shaped', ['COU-7', 'Spec in getcouchy/couchy-design#40.'], c), { key: 'COU-7', shaped: true, released: ['COU-7'] });
   assert.deepEqual(c.log, ['comment Spec in getcouchy/couchy-design#40.', 'add swarm/shaped', 'remove swarm/needs-shaping', 'remove swarm/design', 'remove swarm/agent/claude-shape-1']);
   assert.deepEqual(c.item.labels.map((l) => l.name), ['platform/web', 'swarm/shaped']);
+});
+
+test('create: a label the tracker has retired stays behind', async () => {
+  const from = item(['swarm/agent/claude-shape-1', 'platform/web', 'area/app']);
+  from.labels.find((l) => l.name === 'area/app').retired = true;
+  const c = fakeClient(from, { files: { 's.md': '# Slice\n\nBody.' } });
+  await run('create', ['COU-7', 's.md'], c);
+  assert.deepEqual(c.made[0].labels, ['swarm/shaped', 'platform/web']);
+});
+
+test('shaped --replaced-by: what waited on the item waits on its last slices, then the item is closed', async () => {
+  const other = (key, body = '') => ({ ...item([]), key, number: key, id: key, title: key, body });
+  const c = fakeClient(item(['swarm/needs-shaping', 'swarm/agent/claude-shape-1', 'platform/web'], { id: 'COU-7' }), {
+    // COU-71 names it in its description only. COU-51 waits on COU-50 and COU-53 on COU-52 (in its description
+    // only), so COU-51 and COU-53 are the last slices.
+    others: [other('COU-50'), other('COU-51'), other('COU-52'), other('COU-53', 'Blocked by COU-52.'), other('COU-70'), other('COU-71', 'Blocked by COU-7.'), other('COU-72', 'Blocked by COU-3.')],
+    blocking: { 'COU-7': ['COU-70', 'COU-50'], 'COU-50': ['COU-51'] },
+  });
+  const out = await run('shaped', ['COU-7', 'Four slices.', '--replaced-by=COU-50,COU-51,COU-52,COU-53'], c);
+  assert.deepEqual(c.log, [
+    'relate COU-70 blocked_by COU-51,COU-53',
+    'relate COU-71 blocked_by COU-51,COU-53',
+    'comment Four slices.',
+    'remove swarm/needs-shaping',
+    'remove swarm/agent/claude-shape-1',
+    'stage COU-7 cancelled',
+  ], 'the relations move before the item closes, so nothing is free to start in between');
+  assert.deepEqual(out, {
+    key: 'COU-7', shaped: true, closed: true, replacedBy: ['COU-50', 'COU-51', 'COU-52', 'COU-53'],
+    waiting: ['COU-70', 'COU-71'], waitOn: ['COU-51', 'COU-53'], released: ['COU-7'],
+  });
+});
+
+test('shaped --replaced-by: a key that is no work item stops it before anything changes', async () => {
+  const c = fakeClient(item());
+  await assert.rejects(run('shaped', ['COU-7', 'Two slices.', '--replaced-by=COU-50,COU-99'], c), (e) => e instanceof ShapeUsage && /COU-50, COU-99: no such work item/.test(e.message));
+  assert.deepEqual(c.log, []);
 });

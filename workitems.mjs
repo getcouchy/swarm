@@ -28,13 +28,15 @@ import { FOCUS, bodyBlockers, labelNames, oldName } from './rules.mjs';
  * @property {string} id        the tracker's own id
  * @property {string} title
  * @property {string} body      the description, as Markdown
- * @property {{ name: string }[]} labels
+ * @property {{ name: string, retired?: boolean }[]} labels   `retired`: the tracker no longer gives this label to an item
  * @property {Stage} stage
  * @property {'open' | 'closed'} state   closed in `completed`, `cancelled` and `qa`
  * @property {Priority} priority
  * @property {string} repo      the repository it belongs to (`owner/name`)
  * @property {(string | number)[]} aliases  what PRs and descriptions may still call it (moved.json)
  * @property {string | null} parent  the parent item's `id`
+ * @property {string | null} project  the tracker's id for the project (the epic) it is in
+ * @property {string | null} cycle    the tracker's id for the cycle it is in, current or not
  * @property {boolean} sprint   whether it is in the team's current cycle
  * @property {string} created_at
  * @property {string} updated_at
@@ -70,7 +72,7 @@ import { FOCUS, bodyBlockers, labelNames, oldName } from './rules.mjs';
  * @property {(key: string, kind: 'blocked_by' | 'blocking' | 'relates_to', keys: string[]) => Promise<void>} relate
  * @property {(key: string, url: string, title: string) => Promise<boolean>} addLink   false when already linked
  * @property {(key: string) => Promise<{ url: string, title: string }[]>} links   what is linked to it (its PRs), uploads aside
- * @property {(item: { title: string, body: string, labels?: string[], parent?: string | null, priority?: Priority | null }) => Promise<WorkItem | null>} create   always in Backlog
+ * @property {(item: { title: string, body: string, labels?: string[], parent?: string | null, priority?: Priority | null, project?: string | null, cycle?: string | null }) => Promise<WorkItem | null>} create   always in Backlog; `project` and `cycle` are ids as a WorkItem carries them
  * @property {(key: string, change: { title?: string, body?: string }) => Promise<void>} update
  * @property {(key: string) => Promise<{ id: string, name: string, type: string, size: number | null }[]>} attachments   uploaded files only
  * @property {(key: string, file: { name: string, type: string, bytes: Uint8Array }) => Promise<{ id: string, name: string } | null>} attach
@@ -242,8 +244,8 @@ export function workItems(provider, { map = moved() } = {}) {
     find: (ref) => find(typeof ref === 'string' ? { key: ref } : { number: ref }),
     addLink: (ref, url, title) => provider.addLink(key(ref), url, title),
     links: (ref) => provider.links(key(ref)),
-    createIssue: (title, body, labels = [], { parent = null, priority = null } = {}) =>
-      provider.create({ title, body, labels, parent: parent && key(parent), priority }),
+    createIssue: (title, body, labels = [], { parent = null, priority = null, project = null, cycle = null } = {}) =>
+      provider.create({ title, body, labels, parent: parent && key(parent), priority, project, cycle }),
     editIssue: (ref, change) => provider.update(key(ref), change),
     attachments: (ref) => provider.attachments(key(ref)),
     attach: (ref, file) => provider.attach(key(ref), file),
