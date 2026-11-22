@@ -5,7 +5,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
-import { AGENT_PREFIX, DESIGN, FOCUS, GROOM, NEEDS_PREFIX, NS, SHAPED, blockGraph, labelNames, providers } from './rules.mjs';
+import { AGENT_PREFIX, DESIGN, FOCUS, GROOM, NEEDS_PREFIX, NS, SHAPED, TECH_DESIGN, blockGraph, labelNames, providers } from './rules.mjs';
 
 export const SHAPE_COMMANDS = ['show', 'images', 'describe', 'create', 'blocked-by', 'labels', 'attach', 'shaped'];
 
@@ -199,7 +199,7 @@ export async function shapeCommand(cmd, args, { client, me, readFile = readFileS
     const text = rest.join(' ').trim();
     if (!text) throw new ShapeUsage('Usage: agent.mjs shaped <key> "<what you did, what the owner should look at, and any design PR>" [--replaced-by=<slice keys>]');
     const request = async () => {
-      for (const label of [GROOM, DESIGN]) if (labelNames(item).includes(label)) await client.removeLabel(key, label);
+      for (const label of [GROOM, DESIGN, TECH_DESIGN]) if (labelNames(item).includes(label)) await client.removeLabel(key, label);
     };
     const slices = keys(opt(args, 'replaced-by'));
     if (!slices.length) {

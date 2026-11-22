@@ -8,7 +8,7 @@ import { LabelGroupTaken, isKey } from './workitems.mjs';
 import { likelyWork } from './preflight.mjs';
 import {
   AGENT_PREFIX, DESK, FOCUS, REVIEWED, blockGraph, closingIssues, downstream, partOfIssues, priorityRank, claimWinner, fixReasons, freeFor, handsOff, isReady, isReviewOnly, isReviewable, heartbeatId, heartbeatMarker,
-  labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, openParents, providers, refsOf, shapeKind, whyNotClaimable, whyNotShapeable,
+  labelNames, linkedPulls, linkedTo, mergeHeld, mergeReady, needsReview, openParents, providers, refsOf, shapeKind, whyNotClaimable, whyNotShapeable, SHAPE_KINDS,
 } from './rules.mjs';
 
 /**
@@ -98,7 +98,7 @@ export async function releaseAll(gh, me) {
  * issue, PR and code whatever its name.
  */
 export async function next(gh, { me, can = new Set(), doClaim = true, wrote = new Set(), role = 'all' }) {
-  if (role === 'shape') return nextShape(gh, { me, doClaim });
+  if (SHAPE_KINDS[role]) return nextShape(gh, { me, doClaim, kinds: SHAPE_KINDS[role] });
   const builder = role === 'focus';
   const every = await gh.openPulls();
   // The swarm's PRs, and people's PRs marked `swarm/review-only`, which agents only review.
@@ -197,19 +197,22 @@ export async function next(gh, { me, can = new Set(), doClaim = true, wrote = ne
 }
 
 /**
- * A shaping tick's job (PROTOCOL.md, "Shaping ticks"): the work item it holds
- * already, else one the owner labelled `swarm/groom` or `swarm/design`, those
+ * A shaping tick's job (PROTOCOL.md, "Shaping ticks"), or an architect's
+ * (ARCHITECT.md) when `kinds` is its own: the work item it holds already,
+ * else one the owner labelled for it (`swarm/needs-shaping` or `swarm/design`
+ * for a shaper, `swarm/tech-design` for an architect), those
  * in focus first, then by priority, then the one more work waits on. It
  * builds nothing, reviews nothing, and never moves a work item's state.
  */
-export async function nextShape(gh, { me, doClaim = true }) {
+export async function nextShape(gh, { me, doClaim = true, kinds = SHAPE_KINDS.shape }) {
+  const wanted = (i) => kinds.includes(shapeKind(i));
   const open = (await gh.openIssues()).filter((i) => !handsOff(i));
   const job = (issue, extra) => ({ job: 'shape', kind: shapeKind(issue), issue: issue.number, title: issue.title, ...url(issue), labels: labelNames(issue), lock: issue.number, ...extra });
-  const mine = open.find((i) => shapeKind(i) && providers(i).includes(me));
+  const mine = open.find((i) => wanted(i) && providers(i).includes(me));
   if (mine) return job(mine, { resumed: true, claimed: true });
   const skipped = [];
   const candidates = [];
-  for (const issue of open.filter(shapeKind)) {
+  for (const issue of open.filter(wanted)) {
     const why = whyNotShapeable(issue);
     if (why) skipped.push({ issue: issue.number, why });
     else candidates.push(issue);
@@ -222,7 +225,7 @@ export async function nextShape(gh, { me, doClaim = true }) {
     if (!doClaim) return offer;
     if (await claim(gh, issue.number, me)) return { ...offer, claimed: true };
   }
-  return { job: 'none', why: 'nothing is waiting for shaping', skipped };
+  return { job: 'none', why: kinds.includes('tech-design') ? 'nothing is waiting for a technical design' : 'nothing is waiting for shaping', skipped };
 }
 
 // A blocker as `blockers` names it ('#21', 'COUCHYUX-9'), as an item's reference.

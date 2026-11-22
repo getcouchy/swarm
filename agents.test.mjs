@@ -1106,6 +1106,30 @@ test('shaping: a shaping tick takes what the owner labelled, in focus first, the
   assert.equal(job.issue, 21);
 });
 
+test('architect: an architect tick takes only swarm/tech-design work; a shaping tick and a builder leave it alone', async () => {
+  const td = (n, extra = {}) => issue(n, ['swarm/tech-design'], { stage: 'backlog', ...extra });
+  assert.equal(shapeKind(td(1)), 'tech-design');
+  assert.equal(shapeKind(issue(1, ['swarm/tech-design', 'swarm/needs-shaping'])), 'tech-design', 'the technical design comes before the shaping');
+  assert.equal(whyNotShapeable(td(1)), null);
+  assert.match(whyNotClaimable(issue(1, ['swarm/tech-design']), {}), /waiting for shaping \(swarm\/tech-design\)/);
+
+  const architect = { me: 'claude-architect-1', role: 'architect' };
+  const queue = () => [td(30, { priority: 'low' }), issue(31, ['swarm/needs-shaping'], { stage: 'backlog', priority: 'urgent' }), issue(32)];
+  let job = await next(fake({ issues: queue() }), { ...architect, doClaim: false });
+  assert.deepEqual([job.job, job.kind, job.issue], ['shape', 'tech-design', 30], 'its own kind, whatever else is more urgent');
+  const gh = fake({ issues: queue() });
+  job = await next(gh, architect);
+  assert.deepEqual([job.issue, job.claimed], [30, true]);
+  assert.deepEqual(gh.log, ['add 30 swarm/agent/claude-architect-1']);
+  job = await next(fake({ issues: queue() }), { me: 'claude-shape-1', role: 'shape', doClaim: false });
+  assert.deepEqual([job.kind, job.issue], ['groom', 31], 'a shaping tick never takes a technical design');
+  job = await next(fake({ issues: [issue(31, ['swarm/needs-shaping'], { stage: 'backlog' })] }), architect);
+  assert.deepEqual([job.job, job.why], ['none', 'nothing is waiting for a technical design'], 'and an architect shapes nothing else');
+  // A builder skips a Todo item that waits for its technical design.
+  job = await next(fake({ issues: [issue(40, ['swarm/focus', 'swarm/tech-design']), issue(41)] }), { me: 'claude-1', doClaim: false });
+  assert.equal(job.issue, 41);
+});
+
 test('sweep: a shaping lock on Backlog work is fine; the desk lists work waiting for shaping and shaped work waiting for the owner', async () => {
   const issues = [
     issue(1, ['swarm/needs-shaping', 'swarm/agent/claude-shape-1'], { stage: 'backlog', updated_at: ago(1) }),

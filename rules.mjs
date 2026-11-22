@@ -23,6 +23,9 @@ export const BLOCKED = `${NS}blocked`;
 // either for `swarm/shaped`.
 export const GROOM = `${NS}needs-shaping`;
 export const DESIGN = `${NS}design`;
+// The owner asks an architect tick for a feature's technical design
+// (ARCHITECT.md): how a merged spec is built, and its proposed issue sequence.
+export const TECH_DESIGN = `${NS}tech-design`;
 export const SHAPED = `${NS}shaped`;
 export const CONFLICT = 'conflicts-with-main';
 export const DESK = `${NS}desk`;
@@ -264,11 +267,17 @@ export function whyNotClaimable(issue, ctx) {
   return null;
 }
 
-const SHAPE_LABEL = { design: DESIGN, groom: GROOM };
-/** What shaping a work item asks for: 'design' (which grooms too), 'groom', or null. */
+const SHAPE_LABEL = { 'tech-design': TECH_DESIGN, design: DESIGN, groom: GROOM };
+// Which kinds each role's tick takes. A technical design is the architect's
+// alone: a shaping tick never takes one, and an architect shapes nothing else.
+export const SHAPE_KINDS = { shape: ['design', 'groom'], architect: ['tech-design'] };
+/**
+ * What a work item waits for before it can be built: 'tech-design' (an
+ * architect's), 'design' (which grooms too), 'groom', or null.
+ */
 export function shapeKind(item) {
   const names = labelNames(item);
-  return names.includes(DESIGN) ? 'design' : names.includes(GROOM) ? 'groom' : null;
+  return names.includes(TECH_DESIGN) ? 'tech-design' : names.includes(DESIGN) ? 'design' : names.includes(GROOM) ? 'groom' : null;
 }
 
 /**
@@ -279,7 +288,7 @@ export function shapeKind(item) {
 export function whyNotShapeable(item) {
   const names = labelNames(item);
   if (item.pull_request) return 'a pull request';
-  if (!shapeKind(item)) return `not labelled ${GROOM} or ${DESIGN}`;
+  if (!shapeKind(item)) return `not labelled ${GROOM}, ${DESIGN} or ${TECH_DESIGN}`;
   if (item.state && item.state !== 'open') return 'closed';
   if (item.stage === 'needs-human') return 'in Needs Human: waiting on a person';
   if (!['backlog', 'unstarted'].includes(item.stage)) return `in ${item.stage}: shaping is for Backlog and Todo`;
