@@ -176,8 +176,9 @@ COU. A work item for one is often blocked by one for the other: Linear's
 "blocked by" relation says so, or its description ("Blocked by COU-40").
 
 A tick covers the repositories its scheduler gives it: the ones its prompt
-names, which with a token are `AGENT_REPOS` (default: the repository you work
-in, then getcouchy/couchy-agent). The first is its **home repository**: its
+names, which with a token are `AGENT_REPOS` (comma-separated; the runner
+sets it from the tick's `repos` list; default: the repository you work in, then
+getcouchy/couchy-agent). The first is its **home repository**: its
 open `swarm/desk` work item belonging to it is the Agent desk your heartbeat
 goes on. Go through the steps below across all of them, taking the first step
 that applies anywhere before a later step somewhere else. A PR goes to the

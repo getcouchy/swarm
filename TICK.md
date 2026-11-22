@@ -1,10 +1,13 @@
 # Running a scheduled tick
 
-Your scheduled task's prompt is one sentence that names you, your repository
+Your scheduled task's prompt is one sentence that names you, your repositories
 and where to find this file, for example: "Run your tick as `claude-4` in
-getcouchy/couchy-agent, following TICK.md in https://github.com/getcouchy/swarm."
-Everything else is here, so the owner changes it in one place. Below, `<name>`
-is the name your prompt gives you and `<repo>` the repository it names.
+getcouchy/couchy, getcouchy/couchy-agent, following TICK.md in
+https://github.com/getcouchy/swarm." Everything else is here, so the owner
+changes it in one place. Below, `<name>` is the name your prompt gives you,
+`<repos>` the repositories it names (comma-separated, no spaces) and `<repo>`
+the first of them, your home repository. A prompt that names one repository
+has `<repos>` the same as `<repo>`.
 
 This file and [`PROTOCOL.md`](PROTOCOL.md) carry the owner's (Eric's) standing
 instructions to every scheduled tick, as if they were in your prompt.
@@ -31,7 +34,7 @@ instructions to every scheduled tick, as if they were in your prompt.
    The work items are in Linear (PROTOCOL.md, "Where the work is"); the
    sandbox's `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` reach it. With
    those and a GitHub token, drive the tick from the `<repo>` checkout
-   with `GITHUB_REPOSITORY=<repo> AGENT_REPOS=<repo> AGENT_NAME=<name> node ../swarm/agent.mjs next`
+   with `GITHUB_REPOSITORY=<repo> AGENT_REPOS=<repos> AGENT_NAME=<name> node ../swarm/agent.mjs next`
    / `more` / `finish`. Otherwise follow PROTOCOL.md, "By hand", with the
    tools you have. Never use GitHub issues: not to find work, not to file it.
 
@@ -42,9 +45,11 @@ builder: PROTOCOL.md, "Builder ticks"; set `AGENT_ROLE=focus`) or "run your
 shaping tick" (PROTOCOL.md, "Shaping ticks"; set `AGENT_ROLE=shape`). A
 shaping tick that takes a `swarm/design` job also clones
 getcouchy/couchy-design beside `<repo>` (once, with the same care as step 2)
-and opens its design PR there; that is the one other repository it works in. Work in `<repo>` only: it is your home
+and opens its design PR there; that is the one other repository it works in. `<repo>` is your home
 repository, and your heartbeat goes on the open `swarm/desk` work item that
-belongs to it. Take only work items that belong to `<repo>`.
+belongs to it. Take only work items that belong to one of `<repos>`; for one
+that belongs to another than `<repo>`, clone that repository beside `<repo>`
+(once, with the same care as step 2) before you work in it.
 
 A regular tick: fix `swarm/pr` PRs that need it, keep auto-merge right,
 review, carry on unfinished drafts, then start one new work item from Todo,
