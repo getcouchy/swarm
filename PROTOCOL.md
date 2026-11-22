@@ -152,7 +152,8 @@ Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
 | `swarm/needs-shaping` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
 | `swarm/design` | groom it, and design it in getcouchy/couchy-design: spec and wireframes (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
-| `swarm/shaped` | a shaping tick has done what `swarm/needs-shaping` or `swarm/design` asked; the owner reviews it | a shaping tick, in place of the request |
+| `swarm/tech-design` | write the technical design for a merged spec, and the work items it becomes (see "Architect ticks"); no tick builds it meanwhile, and no shaping tick takes it | the owner only |
+| `swarm/shaped` | a shaping tick has done what `swarm/needs-shaping` or `swarm/design` asked, or an architect tick what `swarm/tech-design` asked; the owner reviews it | a shaping or architect tick, in place of the request |
 | `swarm/qa` | when its closing PR merges, the work item goes to QA, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
 | `swarm/blocked` | the work item waits on other work: an open blocker, for views to filter on; ask for the blockers yourself before taking work. Not the Needs Human state, which waits on a person | the sweep only; it takes off any it finds without an open blocker |
 | `swarm/needs-human` | on a PR: a real fork or a step only a person can take; pages the owner and holds the merge. A work item goes to the Needs Human state instead | an agent, after its comment |
@@ -260,7 +261,7 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    label, has no open sub-issues (someone split it into them by hand: take
    one of those), has no open blockers, and
    that you can take (see "What you may take") and that is not waiting for
-   shaping (`swarm/needs-shaping` or `swarm/design`), taken in the order "Focus"
+   shaping (`swarm/needs-shaping`, `swarm/design` or `swarm/tech-design`), taken in the order "Focus"
    gives. Nothing outside focus is started. Lock it, read it with its
    comments (`agent.mjs show <key>`), then build it; one back from QA gets
    only the fix its feedback asks for (see "Where the work is"). A work item's blockers are the items Linear's
@@ -606,6 +607,23 @@ off. With `--replaced-by` it closes the item instead of marking it shaped
 (above). Shaping that isn't finished when the tick ends stays locked until
 `finish`, keeps its label, and the next shaping tick carries it on from the
 comments and the PR.
+
+## Architect ticks
+
+An architect tick writes a feature's technical design; it builds nothing. Its
+prompt says "run your **architect tick** as `<name>`" (with the tool:
+`AGENT_ROLE=architect`). It has a name and label of its own
+(`swarm/agent/claude-architect-1`) and takes one job at a time: the work item
+it already holds, else the next one the owner labelled `swarm/tech-design`
+that is in Backlog or Todo, nobody holds, and is not `swarm/hands-off`, in a
+shaping tick's order. It reviews, fixes and merges nothing, takes no other
+shaping, and never moves a work item's state. While an item carries the label
+no tick builds it, and no shaping tick takes it.
+
+What it reads, what the technical design holds, and how it hands the work on
+are in [`ARCHITECT.md`](ARCHITECT.md), which only an architect tick needs to
+read. [`LIFECYCLE.md`](LIFECYCLE.md) is the whole path a feature takes, from
+the idea to QA, and who checks what along it.
 
 ## What you may take
 

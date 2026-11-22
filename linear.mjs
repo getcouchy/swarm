@@ -22,7 +22,7 @@
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { AGENT_PREFIX, BLOCKED, DESIGN, DESK, FOCUS, GROOM, HANDS_OFF, HOLD, NEEDS_HUMAN, NEEDS_PREFIX, NS, QA, SHAPED } from './rules.mjs';
+import { AGENT_PREFIX, BLOCKED, DESIGN, DESK, FOCUS, GROOM, HANDS_OFF, HOLD, NEEDS_HUMAN, NEEDS_PREFIX, NS, QA, SHAPED, TECH_DESIGN } from './rules.mjs';
 import { LabelGroupTaken, aliasesFor, closedStage, isKey, moved, parsePairs } from './workitems.mjs';
 
 export const API = 'https://api.linear.app/graphql';
@@ -37,7 +37,7 @@ const STAGE_OF = { triage: 'backlog', backlog: 'backlog', unstarted: 'unstarted'
 const TYPE_OF = { backlog: 'backlog', unstarted: 'unstarted', started: 'started', completed: 'completed', cancelled: 'canceled' };
 
 // Colours for the labels the tools create; anything else gets grey.
-const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#bec2c8'], [BLOCKED, '#e99695'], [QA, '#0e8a16'], [GROOM, '#c5def5'], [DESIGN, '#d4c5f9'], [SHAPED, '#0075ca']];
+const COLORS = [[AGENT_PREFIX, '#5319e7'], [NEEDS_HUMAN, '#d93f0b'], [HOLD, '#fbca04'], [FOCUS, '#b60205'], [HANDS_OFF, '#000000'], [DESK, '#bec2c8'], [BLOCKED, '#e99695'], [QA, '#0e8a16'], [GROOM, '#c5def5'], [DESIGN, '#d4c5f9'], [TECH_DESIGN, '#1d76db'], [SHAPED, '#0075ca']];
 export const colorOf = (name) => COLORS.find(([p]) => name.startsWith(p))?.[1] ?? '#bec2c8';
 
 // The groups the protocol's labels live in, in Linear.

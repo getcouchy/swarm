@@ -5,14 +5,16 @@ who checks it. [`PROTOCOL.md`](PROTOCOL.md) stays the rule for a tick; this
 file is the stages around it.
 
 Parts marked **(new)** do not exist yet. Everything else is how the work runs
-today. The last section lists what has to be built for the new parts to be true.
+today, or is in the tools: the architect's first job, the technical design, is
+([`ARCHITECT.md`](ARCHITECT.md)). The last section lists what has to be built
+for the new parts to be true.
 
 ## The path
 
 ```
  owner + design agent        architect            shaper         builders, reviewers        owner
 ┌──────────┐  ┌────────┐  ┌──────────────┐  ┌────────────┐  ┌───────────┐  ┌──────────────┐  ┌────┐
-│ 1 Riff   │→ │ 2 Spec │→ │ 3 Technical  │→ │ 4 Project  │→ │ 5 Shape   │→ │ 6 Build      │→ │ 8  │
+│ 1 Riff   │→ │ 2 Spec │→ │ 3 Technical  │→ │ 4 Packages │→ │ 5 Shape   │→ │ 6 Build      │→ │ 8  │
 │          │  │        │  │   design     │  │            │  │           │  │ 7 Review,    │  │ QA │
 └──────────┘  └────────┘  └──────────────┘  └────────────┘  └───────────┘  │   merge      │  └────┘
    go / smaller  spec PR     design PR with     Linear          work items  └──────────────┘
@@ -30,8 +32,8 @@ card, and QA. Nothing else waits on the owner unless an agent hits a real fork
 | --- | --- | --- | --- | --- |
 | **Owner** | Whether to build it, what it is for, the plan's size, whether it shipped right, real forks | Reviews code or picks a pattern | The spec, the plan card, the weekly digest | Merges, QA comments, answers |
 | **Design agent** | What the person sees and does: screens, states, wording, on the phone and at desk width | Says how to build it | couchy-design, the design system, the live app | `spec.md`, wireframes |
-| **Architect** **(new)** | How it is built: which patterns, what is shared, the order, the cut into packages | Changes what the person sees; reviews routine PRs; sets priority | The spec, the code, the repository's rules, the health numbers, every stream in flight | `tech-design.md`, the Linear project and its packages, rules and their lint checks |
-| **Shaper** | How a package becomes work items an agent can build without asking | Changes a package's design section; builds | The package, the spec, the technical design | Work items (`PROTOCOL.md`, "Shaping ticks") |
+| **Architect** | How it is built: which patterns, what is shared, the order, the cut into packages | Changes what the person sees; reviews routine PRs; sets priority | The spec, the code, the repository's rules, every stream in flight | `tech-design.md`, one work item per package; later, rules and their lint checks **(new)** |
+| **Shaper** | How work that did not come through the architect becomes work items an agent can build without asking | Redesigns; builds | The work item, the spec | Work items (`PROTOCOL.md`, "Shaping ticks") |
 | **Builder** | Everything inside one work item | Redesigns: a wrong design goes back to the architect | The work item, the repository's rules | Pull requests |
 | **Reviewer** | `ok` or `changes` on one pull request | Reviews a PR it wrote in the same session | The PR, its work item, the rules, the item's other PRs **(new)** | A verdict |
 | **CI and the sweep** | Nothing: they check what is written down | | | Statuses, the desk, metrics |
@@ -61,9 +63,7 @@ design, and the architect's design is reviewed by another agent.
   disagreeing while it has a reason: the owner deciding otherwise settles the
   question, the owner repeating the idea does not.
 - **Out:** mockups, revised until both agree. Nothing durable yet.
-- **Gate:** the owner says "write the spec". An idea that ends in "don't
-  build it" gets one line in `features/<slug>/spec.md` with `Status:
-  Superseded` and the reason, so it is not riffed again from nothing.
+- **Gate:** the owner says "write the spec", or the two agree not to build it.
 
 ### 2. Spec: what the person sees and does
 
@@ -80,12 +80,17 @@ design, and the architect's design is reviewed by another agent.
   write, no count of call sites. The template's "Implementation notes"
   becomes "Notes for the architect" **(new)**: what the design agent noticed
   in the code, as observations the architect may ignore.
-- **Gate:** the owner reads it and merges the PR. Merging sets `Status: Ready`
-  and is the approval (couchy-design, "Merging is approval").
+- **Gate:** the owner reads it and merges the PR. Merging sets the spec to
+  `Ready` and is the approval (couchy-design, "Merging is approval").
+- **Hand-off:** one work item in the feature's Linear project, "Technical
+  design: <feature>", naming the spec by path and labelled
+  `swarm/tech-design`. The design agent files it when the spec merges, or the
+  owner does. That label is what the architect's tick looks for.
 
-### 3. Technical design: how it is built **(new)**
+### 3. Technical design: how it is built
 
-- **Who:** the architect, with the spec and the codebase open.
+- **Who:** an architect tick ([`ARCHITECT.md`](ARCHITECT.md)), with the spec
+  and the codebase open.
 - **Artifact:** `features/<slug>/tech-design.md`, beside the spec, on its own
   PR in getcouchy/couchy-design.
 - **It opens with the plan card**, the only part the owner has to read:
@@ -121,31 +126,34 @@ design, and the architect's design is reviewed by another agent.
   on the idea: "this state costs 12 pull requests; without it, 3" goes in
   "What the spec costs most". It does not change the spec. A spec it cannot
   build as written goes back to stage 2 as a question.
-- **Gate, in two steps:** another agent reviews the PR against the
-  repository's rules and gives a verdict. Then the owner reads the plan card
-  and merges. The owner approves the size and the order, not the code.
+- **Gate:** the owner reads the plan card and merges the design's PR. The
+  owner approves the size and the order, not the code. Before that, another
+  agent reviews the design against the repository's rules **(new)**.
 
-### 4. Project: the work, in Linear **(new for the architect)**
+### 4. Packages: the work, in Linear
 
-- **Who:** the architect, once the technical design is merged.
-- **Artifact:** a Linear project. Its description is the plan card, with links
-  to the spec and the technical design at the commit that merged them.
-- **One work item per package**, in Backlog, labelled `swarm/needs-shaping`,
-  with Linear's "blocked by" set in build order. Each carries its package's
-  section of the technical design in full: a builder's sandbox may not reach
-  couchy-design, so a work item has to stand on its own.
-- **Gate:** none. The owner approved this at stage 3.
+- **Who:** the architect, in the same run that opens the design's PR.
+- **Artifact:** one work item per package, in Backlog, in the feature's
+  project, with Linear's "blocked by" set in build order. Each is one pull
+  request of a day or less and is written to be built as it stands: Scope,
+  Not in this item, Acceptance (the spec's checks, word for word), Design
+  (the rules by number and the contracts, in full), Fan-out, Verify. A
+  builder's sandbox may not reach couchy-design, so nothing is left as a link.
+- **Gate:** the owner moves the packages to Todo after merging the design.
+  That is the approval for work, as it is today.
 
-### 5. Shape: work items an agent can build
+### 5. Shape: for work that did not come through the architect
 
 - **Who:** a shaping tick (`PROTOCOL.md`, "Shaping ticks").
-- **Artifact:** each package's work item rewritten as Scope, Not in this
-  item, Acceptance, Verify, and two sections more **(new)**:
-  - `### Design`: copied from the package unchanged. The shaper may split a
-    package into slices of one pull request each; it may not redesign one.
-  - `Fan-out:` the files a slice touches, and the command.
-- **Gate:** the architect checks the shaped items still say what the package
-  said, and moves them to Todo **(new; today the owner does this)**.
+- **When:** a bug, a one-screen change, or a work item filed by hand that the
+  owner labels `swarm/needs-shaping`. A feature's packages arrive shaped from
+  stage 4 and skip this.
+- **Artifact:** the work item rewritten as Scope, Not in this item,
+  Acceptance, Verify, and two sections more **(new)**: `### Design` (the
+  repository's rules that apply, by number) and `Fan-out:` (the files it
+  touches, and the command). A shaper that finds the same edit landing in
+  more than three files stops and asks for a technical design.
+- **Gate:** the owner moves it to Todo.
 
 ### 6. Build
 
@@ -204,7 +212,7 @@ design, and the architect's design is reviewed by another agent.
 | The spec decides how to build it | Architect, who sends it back | 3 |
 | The plan is the same edit in many places | Architect (fan-out per package); the owner (pull requests expected) | 3 |
 | The technical design breaks the repository's rules | The agent that reviews it | 3 |
-| A work item lost its design section | Architect, before Todo | 5 |
+| A package's work item does not stand on its own | The builder, who sends it back | 6 |
 | The code breaks a rule lint knows | CI | 7 |
 | The code breaks a rule lint does not know | Reviewer | 7 |
 | The plan was wrong and the work is fanning out | The sweep's count, then the architect | 9 |
@@ -233,7 +241,7 @@ has skipped the check that role exists for.
 | --- | --- | --- |
 | Per feature | The riff | As long as it is useful |
 | Per feature | The spec, then merge | What it takes today |
-| Per feature | The plan card, then merge | A few minutes: a table and at most three questions |
+| Per feature | The plan card, then merge and move the packages to Todo | A few minutes: a table and at most three questions |
 | Per work item in QA | Walk the acceptance checks | What it takes today |
 | Weekly | The digest | About ten minutes |
 | Monthly | The audit's summary | About ten minutes |
@@ -250,9 +258,9 @@ In the order that makes each stage true:
    architect" in place of "Implementation notes" (couchy-design).
 2. The design agent's brief: stage 1's five points, as its standing prompt.
 3. `tech-design.md` in the feature template, with the plan card (couchy-design).
-4. The architect role: `AGENT_ROLE=architect` in the tools, its section in
-   `PROTOCOL.md`, and its three jobs (a merged spec with no technical design;
-   a stopped work item; the daily trend).
+4. The architect's other two jobs: a stopped work item, and the daily trend.
+   Its first, the technical design, is built (`AGENT_ROLE=architect`,
+   `swarm/tech-design`, `ARCHITECT.md`); it needs a tick scheduled for it.
 5. The tools it needs: the pull requests of each work item, the files open
    pull requests share, the suppression and budget counts with their trend.
 6. The shaping template's `### Design` and `Fan-out:`, and `shaped` refusing
@@ -262,13 +270,13 @@ In the order that makes each stage true:
 9. The ratchet check in each repository's CI.
 10. The digest and the audit, as scheduled tasks.
 
-Until 4 exists the architect's stages can be run by hand: a session given the
-merged spec, the codebase and this file, asked for the technical design.
+An architect's run can also be started by hand, for one feature: a session
+given `ARCHITECT.md` and the work item's key.
 
 ## Decisions still open
 
-- **Who moves shaped work to Todo.** Today only the owner. This draft gives it
-  to the architect for a project whose plan card the owner merged.
+- **Who moves a feature's packages to Todo.** The owner, as today. If that
+  becomes the wait, the architect could do it once the design's PR is merged.
 - **How far over its estimate a work item may go before it stops.** This draft
   says twice the plan's number.
 - **Whether a small change skips stages 3 to 5.** A bug fix or a one-screen

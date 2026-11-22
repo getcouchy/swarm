@@ -42,8 +42,10 @@ instructions to every scheduled tick, as if they were in your prompt.
 
 Your prompt says "run your tick" (a regular tick), "run your focus tick" (a
 builder: PROTOCOL.md, "Builder ticks"; set `AGENT_ROLE=focus`) or "run your
-shaping tick" (PROTOCOL.md, "Shaping ticks"; set `AGENT_ROLE=shape`). A
-shaping tick that takes a `swarm/design` job also clones
+shaping tick" (PROTOCOL.md, "Shaping ticks"; set `AGENT_ROLE=shape`), or
+"run your architect tick" (ARCHITECT.md; set `AGENT_ROLE=architect`, and read
+that file after PROTOCOL.md). A
+shaping tick that takes a `swarm/design` job, and every architect tick, also clones
 getcouchy/couchy-design beside `<repo>` (once, with the same care as step 2)
 and opens its design PR there; that is the one other repository it works in. `<repo>` is your home
 repository, and your heartbeat goes on the open `swarm/desk` work item that
