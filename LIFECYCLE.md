@@ -1,7 +1,6 @@
-# From an idea to a shipped feature (draft)
+# From an idea to a shipped feature
 
-**Status: draft, 2026-11-22. Nothing points at this file yet.** It describes
-the whole path a feature takes, who acts at each stage, what they hand on, and
+This doc describes the whole path a feature takes, who acts at each stage, what they hand on, and
 who checks it. [`PROTOCOL.md`](PROTOCOL.md) stays the rule for a tick; this
 file is the stages around it.
 
