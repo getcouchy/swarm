@@ -587,7 +587,7 @@ Don't create work outside the item you hold.
 getcouchy/couchy-design beside your checkout, read its `README.md` and
 `AGENTS.md`, and open one PR there (`swarm/pr` is not for it: the owner
 reviews and merges design PRs) that adds `features/<slug>/spec.md` from
-`features/_template/` with `Status: Draft` and its wireframes,
+`features/_template/` with `status: Draft` in its frontmatter and its wireframes,
 `wireframes/NN-<screen>.html`, at the sizes the README gives. Render each
 wireframe to PNG (`npx -y playwright screenshot --viewport-size "1440, 900"
 --full-page file://$PWD/<file>.html <file>.png`, or 390 × 844 for a phone
