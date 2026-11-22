@@ -647,8 +647,8 @@ no tick builds it, and no shaping tick takes it.
 
 What it reads, what the technical design holds, and how it hands the work on
 are in [`ARCHITECT.md`](ARCHITECT.md), which only an architect tick needs to
-read. It files no work items: once the owner merges its design and labels the
-work item `swarm/needs-shaping`, a shaping tick files the design's proposed
+read. It files no work items: once the owner merges its design, couchy-design's
+hand-off workflow labels the work item `swarm/needs-shaping`, and a shaping tick files the design's proposed
 issue sequence ("Shaping ticks", "A merged technical design").
 [`LIFECYCLE.md`](LIFECYCLE.md) is the whole path a feature takes, from
 the idea to QA, and who checks what along it.

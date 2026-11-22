@@ -135,8 +135,9 @@ design, and the architect's design is reviewed by another agent.
 ### 4. Packages: the work, in Linear
 
 - **Who:** a shaping tick (`PROTOCOL.md`, "Shaping ticks", "A merged
-  technical design"), once the owner merges the design and labels its work
-  item `swarm/needs-shaping`. Not the architect: its run, on the strongest
+  technical design"), once the owner merges the design: the merge labels its
+  work item `swarm/needs-shaping` (couchy-design's
+  `tech-design-handoff.yml`). Not the architect: its run, on the strongest
   model, is spent on the design, and the work items are filed from the
   design the owner approved, so a change asked for on the PR leaves none to
   cancel.

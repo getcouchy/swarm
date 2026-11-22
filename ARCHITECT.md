@@ -171,9 +171,9 @@ web-smoke flows the feature adds.
    ```
 
    That comments the summary, swaps `swarm/tech-design` for `swarm/shaped`,
-   and takes your label off. When the owner merges the design, they label the
-   work item `swarm/needs-shaping`, and a shaping tick files the proposed
-   issue sequence (`PROTOCOL.md`, "Shaping ticks").
+   and takes your label off. When the owner merges the design,
+   couchy-design's hand-off workflow labels the work item
+   `swarm/needs-shaping`, and a shaping tick files the proposed issue sequence (`PROTOCOL.md`, "Shaping ticks").
 
 **When the work item comes back.** The owner put `swarm/tech-design` back on
 it. What to change is in the comments on the design's pull request since your
