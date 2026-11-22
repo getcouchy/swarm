@@ -152,7 +152,7 @@ Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
 | `swarm/needs-shaping` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
 | `swarm/design` | groom it, and design it in getcouchy/couchy-design: spec and wireframes (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
-| `swarm/tech-design` | write the technical design for a merged spec, and the work items it becomes (see "Architect ticks"); no tick builds it meanwhile, and no shaping tick takes it | the owner only |
+| `swarm/tech-design` | write the technical design for a merged spec, with its proposed issue sequence (see "Architect ticks"); no tick builds it meanwhile, and no shaping tick takes it | the owner only |
 | `swarm/shaped` | a shaping tick has done what `swarm/needs-shaping` or `swarm/design` asked, or an architect tick what `swarm/tech-design` asked; the owner reviews it | a shaping or architect tick, in place of the request |
 | `swarm/qa` | when its closing PR merges, the work item goes to QA, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
 | `swarm/blocked` | the work item waits on other work: an open blocker, for views to filter on; ask for the blockers yourself before taking work. Not the Needs Human state, which waits on a person | the sweep only; it takes off any it finds without an open blocker |
@@ -585,6 +585,31 @@ The item doesn't stay behind to hold its slices. It ends one of two ways:
 
 Don't create work outside the item you hold.
 
+**A merged technical design.** The work item is a feature's "Technical
+design: <feature>", and its `swarm/needs-shaping` asks you to file the design's
+work items. Clone getcouchy/couchy-design beside your checkout and open
+`features/<slug>/tech-design.md` on `main` (the architect's `shaped` comment
+names it). Its "Proposed issue sequence" is already cut and written by the
+architect: you copy it, you don't redesign it. For each entry, in order:
+
+1. Write its file: `# <the entry's title>`, then its goal paragraph with a
+   line naming the technical design and the spec by path, then its body with
+   each `####` heading made `###`. Under `### Design`, after what is there,
+   paste in full every contract its "Contracts" line names, from the design's
+   Contracts section. A builder's sandbox may not reach couchy-design, so
+   nothing is left as a link.
+2. `agent.mjs create <key> <file.md> --labels=<its Labels line>
+   --blocked-by=<its Waits on: the keys you made for the entries it names,
+   and any keys it gives>`.
+
+Then `agent.mjs shaped <key> "<the design, and each entry's number with its
+key>" --replaced-by=<every key you made>`. Change no entry's scope, acceptance
+or design. An entry you can't file as written (a section missing, a contract
+it names that isn't there, a check that isn't the spec's) stops the job before
+you create anything: comment on the work item what is missing, entry by entry,
+then `agent.mjs needs-human <key> "<the entries, and what each lacks>"`. The
+owner sends it back to the architect.
+
 **`swarm/design`** asks for the grooming and the design. Clone
 getcouchy/couchy-design beside your checkout, read its `README.md` and
 `AGENTS.md`, and open one PR there (`swarm/pr` is not for it: the owner
@@ -622,7 +647,10 @@ no tick builds it, and no shaping tick takes it.
 
 What it reads, what the technical design holds, and how it hands the work on
 are in [`ARCHITECT.md`](ARCHITECT.md), which only an architect tick needs to
-read. [`LIFECYCLE.md`](LIFECYCLE.md) is the whole path a feature takes, from
+read. It files no work items: once the owner merges its design and labels the
+work item `swarm/needs-shaping`, a shaping tick files the design's proposed
+issue sequence ("Shaping ticks", "A merged technical design").
+[`LIFECYCLE.md`](LIFECYCLE.md) is the whole path a feature takes, from
 the idea to QA, and who checks what along it.
 
 ## What you may take

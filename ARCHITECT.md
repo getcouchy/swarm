@@ -2,7 +2,11 @@
 
 An architect tick turns a merged spec into a **technical design**: how the
 feature is built in this codebase, which shared pieces come first, and the
-work items the builders take. It builds nothing and reviews nothing.
+sequence of work items the builders take. It builds nothing, reviews nothing,
+and files no work items: once the owner merges the design, a shaping tick
+files its proposed issue sequence as written. Your run is spent on the
+thinking; the copying is done on a cheaper model, from the design the owner
+approved.
 
 It exists because every other tick sees one work item or one pull request.
 Nobody else is placed to notice that a feature is the same edit in forty
@@ -54,7 +58,7 @@ As [`TICK.md`](TICK.md) says, and also:
 4. **What is in flight**: `gh pr list --label swarm/pr --json number,title,files`
    for the files open pull requests are changing, and the open work items in
    the same area. A design that collides with work in flight says so, and
-   orders itself after it (`--blocked-by=<keys>`).
+   orders itself after it (the keys, under an entry's "Waits on").
 
 ## Measure, then design
 
@@ -101,16 +105,40 @@ and for each new screen its model, its views and where it is registered.
 **Contracts.** The types at each seam, as code blocks: what a model returns, a
 new API response, a store's shape. Types and signatures only. The body is the
 builder's, and a design that writes it has taken the builder's job and made
-itself wrong the first time the code moves.
+itself wrong the first time the code moves. One `###` heading per seam, so a
+package can name the contracts it uses.
 
 **Shared pieces.** Anything three or more places will use, with the places
 named, and what already exists that is reused.
 
-**Packages.** The cut, in build order. Each package is one pull request of a
-day or less; one that is bigger is cut again here, not left for later. For
-each: what it delivers, the spec's acceptance checks it meets (word for word),
-the patterns and contracts above that apply to it, its fan-out with the
-command, and what it waits on.
+**Proposed issue sequence.** The cut, in build order: one entry per package,
+and each package one pull request of a day or less; one that is bigger is cut
+again here, not left for later. A shaping tick on a smaller model files each
+entry as a work item, and decides nothing: everything a builder needs is in
+the entry, or in a contract it names. Each entry is in this form:
+
+```markdown
+### 1. <the work item's title>
+
+Labels: <product labels, one per group: area/…, platform/…, repo/… when not
+getcouchy/couchy, swarm/needs/<thing> when it can't be checked without it>
+Waits on: <earlier entries by number, other work items by key, or "nothing">
+Contracts: <the `###` headings under Contracts it uses, or "none">
+
+<The goal in a paragraph: what exists when it merges.>
+
+#### Scope
+#### Not in this item
+#### Acceptance
+<the spec's checks it meets, word for word; web-ergonomics rules by number>
+#### Design
+<the patterns by rule number, and the shared pieces it builds or uses>
+
+Fan-out: <the files it touches, and the command that counted them>
+
+#### Verify
+<the test, the simulator flow, the web-smoke flow>
+```
 
 **Tests.** What is tested on a model, what on a view, and which simulator and
 web-smoke flows the feature adds.
@@ -136,43 +164,23 @@ web-smoke flows the feature adds.
    technical design, ready for review. Its body is the plan card. Do not label
    it `swarm/pr` or turn on auto-merge: the owner reads the plan card and
    merges, and merging is the approval.
-2. **Create one work item for each package**, in build order:
+2. **Finish**, filing no work items:
 
    ```bash
-   node ../swarm/agent.mjs create <key> package-1.md --labels=area/app,platform/web
-   node ../swarm/agent.mjs create <key> package-2.md --blocked-by=COU-501
+   node ../swarm/agent.mjs shaped <key> "<the plan card, and the design PR>"
    ```
 
-   Each file is the work item a builder will read with nothing else open, so
-   it stands on its own. A builder's sandbox may not reach couchy-design:
+   That comments the summary, swaps `swarm/tech-design` for `swarm/shaped`,
+   and takes your label off. When the owner merges the design, they label the
+   work item `swarm/needs-shaping`, and a shaping tick files the proposed
+   issue sequence (`PROTOCOL.md`, "Shaping ticks").
 
-   - the goal in a paragraph, with the spec and the technical design by path;
-   - `### Scope` and `### Not in this item`;
-   - `### Acceptance`: the spec's checks for this package, word for word, with
-     any `web-ergonomics` rules by number;
-   - `### Design`: the patterns by rule number and the contracts, copied from
-     the technical design in full;
-   - `Fan-out:` the files it touches, and the command that counted them;
-   - `### Verify`: the test, the simulator flow, the web-smoke flow.
-
-   They are made in Backlog, in the work item's project, already
-   `swarm/shaped`. They stay there until the owner merges the design and moves
-   them to Todo.
-3. **Finish**:
-
-   ```bash
-   node ../swarm/agent.mjs shaped <key> "<the plan card, the design PR, the package keys>" --replaced-by=COU-501,COU-502
-   ```
-
-   That comments the summary, closes the work item you held in favour of its
-   packages, and takes your label off.
-
-**When the work item comes back.** The owner reopened it with
-`swarm/tech-design` on again: the comments on the design's pull request since
-your last push are what to change. Push the change to the same pull request
-and update its plan card. Create a new work item for each package the change
-alters or adds; you cannot cancel the ones they replace, so your `shaped`
-summary lists those by key for the owner to cancel.
+**When the work item comes back.** The owner put `swarm/tech-design` back on
+it. What to change is in the comments on the design's pull request since your
+last push, or on the work item when a shaping tick found an entry it could not
+file as written. Push the change to the same pull request and update its plan
+card; if that pull request has merged, open a new one that edits the design.
+Then finish as above.
 
 A question the design cannot proceed without goes to the owner with
 `agent.mjs needs-human <key> "<question>"`: the options, what each costs, the

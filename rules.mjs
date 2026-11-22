@@ -24,7 +24,7 @@ export const BLOCKED = `${NS}blocked`;
 export const GROOM = `${NS}needs-shaping`;
 export const DESIGN = `${NS}design`;
 // The owner asks an architect tick for a feature's technical design
-// (ARCHITECT.md): how a merged spec is built, and the work items it becomes.
+// (ARCHITECT.md): how a merged spec is built, and its proposed issue sequence.
 export const TECH_DESIGN = `${NS}tech-design`;
 export const SHAPED = `${NS}shaped`;
 export const CONFLICT = 'conflicts-with-main';
