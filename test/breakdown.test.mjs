@@ -96,7 +96,7 @@ test('create: a slice is a sibling, not a child, with the item\'s product labels
   const out = await run('create', ['COU-7', 's.md'], c);
   assert.deepEqual(c.made, [{
     title: 'Slice one', body: '### Scope\n\n- this',
-    labels: ['swarm/needs-approval', 'swarm/focus', 'swarm/needs/ios-sim', 'platform/web', 'area/app', 'repo/couchy-agent'],
+    labels: ['swarm/focus', 'swarm/needs/ios-sim', 'platform/web', 'area/app', 'repo/couchy-agent'],
     priority: 'high', project: 'p1', cycle: 'cy1',
   }]);
   assert.deepEqual([out.from, out.created, out.url], ['COU-7', 'COU-50', 'u']);
@@ -107,7 +107,7 @@ test('create: --labels adds, takes the place of the item\'s label in the same gr
   // In an earlier cycle, not the sprint: the slice goes in none.
   const c = fakeClient(item(SPLIT, { project: null, cycle: 'cy0', sprint: false }), { files: { 's.md': '# API slice\n\nBody.' } });
   const out = await run('create', ['COU-7', 's.md', '--labels=area/api,-platform/web,-swarm/needs/ios-sim,swarm/hold', '--blocked-by=COU-2,COU-3', '--priority=low'], c);
-  assert.deepEqual(c.made[0].labels, ['swarm/needs-approval', 'swarm/focus', 'repo/couchy-agent', 'area/api']);
+  assert.deepEqual(c.made[0].labels, ['swarm/focus', 'repo/couchy-agent', 'area/api']);
   assert.deepEqual([c.made[0].priority, c.made[0].project, c.made[0].cycle], ['low', null, null]);
   assert.deepEqual(out.labels, c.made[0].labels);
   assert.deepEqual(c.log, ['create API slice', 'relate COU-50 blocked_by COU-2,COU-3']);
@@ -122,12 +122,12 @@ test('labels: product labels only; attach: known file types', async () => {
   assert.deepEqual(c.log, ['remove area/api', 'add platform/web', 'attach b.png image/png 4'], 'removals first, so a one-label group can swap');
 });
 
-test('submit: the summary, then swarm/needs-approval in place of the request, and the lock comes off', async () => {
+test('submit: the summary, then the request and the lock come off', async () => {
   const c = fakeClient(item(['swarm/design', 'swarm/task-breakdown', 'swarm/agent/claude-task-breakdown-1', 'platform/web']));
   await assert.rejects(run('submit', ['COU-7'], c), /Usage/);
   assert.deepEqual(await run('submit', ['COU-7', 'Spec in getcouchy/couchy-design#40.'], c), { key: 'COU-7', submitted: true, released: ['COU-7'] });
-  assert.deepEqual(c.log, ['comment Spec in getcouchy/couchy-design#40.', 'add swarm/needs-approval', 'remove swarm/task-breakdown', 'remove swarm/design', 'remove swarm/agent/claude-task-breakdown-1']);
-  assert.deepEqual(c.item.labels.map((l) => l.name), ['platform/web', 'swarm/needs-approval']);
+  assert.deepEqual(c.log, ['comment Spec in getcouchy/couchy-design#40.', 'remove swarm/task-breakdown', 'remove swarm/design', 'remove swarm/agent/claude-task-breakdown-1']);
+  assert.deepEqual(c.item.labels.map((l) => l.name), ['platform/web']);
 });
 
 test('submit: a technical design keeps its label and waits in Review until its PR merges', async () => {
@@ -140,12 +140,18 @@ test('submit: a technical design keeps its label and waits in Review until its P
   assert.ok(!merged.log.some((l) => l.startsWith('stage')));
 });
 
+test('create: a slice of an item with no labels of its own has none, like one a technical design asks for', async () => {
+  const c = fakeClient(item(['swarm/task-breakdown', 'swarm/agent/claude-task-breakdown-1']), { files: { 's.md': '# Slice\n\nBody.' } });
+  await run('create', ['COU-7', 's.md'], c);
+  assert.deepEqual(c.made[0].labels, []);
+});
+
 test('create: a label the tracker has retired stays behind', async () => {
   const from = item(['swarm/agent/claude-task-breakdown-1', 'platform/web', 'area/app']);
   from.labels.find((l) => l.name === 'area/app').retired = true;
   const c = fakeClient(from, { files: { 's.md': '# Slice\n\nBody.' } });
   await run('create', ['COU-7', 's.md'], c);
-  assert.deepEqual(c.made[0].labels, ['swarm/needs-approval', 'platform/web']);
+  assert.deepEqual(c.made[0].labels, ['platform/web']);
 });
 
 test('submit --replaced-by: what waited on the item waits on its last slices, then the item is closed', async () => {
@@ -180,12 +186,6 @@ test('submit --filed: a "Task breakdown" item is Done with its label; what waite
   assert.deepEqual(c.log, ['relate COU-70 blocked_by COU-51', 'comment Two packages.', 'stage COU-7 completed', 'remove swarm/agent/claude-task-breakdown-1'], 'Done before the lock comes off, so nothing is filed twice');
   assert.deepEqual(c.item.labels.map((l) => l.name), ['swarm/task-breakdown']);
   assert.deepEqual(out, { key: 'COU-7', submitted: true, closed: true, filed: ['COU-50', 'COU-51'], waiting: ['COU-70'], waitOn: ['COU-51'], released: ['COU-7'] });
-});
-
-test('submit: an item in Todo is approved already, so it gets no swarm/needs-approval', async () => {
-  const c = fakeClient(item(undefined, { stage: 'unstarted' }));
-  await run('submit', ['COU-7', 'Rewritten.'], c);
-  assert.deepEqual(c.item.labels, []);
 });
 
 test('submit --replaced-by: a key that is no work item stops it before anything changes', async () => {

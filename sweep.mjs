@@ -28,7 +28,7 @@ import { focusOf } from './lib/tick.mjs';
 import {
   AGENT_PREFIX, BLOCKED, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  blockGraph, downstream, needsQA, openParents, partOfIssues, providers, refText, whyNotClaimable, FAILED, NEEDS_APPROVAL, requestKind, whyNotBreakdown,
+  blockGraph, downstream, needsQA, openParents, partOfIssues, providers, refText, whyNotClaimable, FAILED, requestKind, whyNotBreakdown,
 } from './lib/rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
@@ -202,11 +202,6 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     await gh.removeLabel(item.number, BLOCKED);
   }
 
-  // Moving an item out of Backlog is the owner's approval; an agent's question (Needs Human) isn't.
-  for (const item of ((await gh.labelledItems?.(NEEDS_APPROVAL)) ?? []).filter((i) => !['backlog', 'needs-human'].includes(i.stage))) {
-    await gh.removeLabel(item.number, NEEDS_APPROVAL);
-  }
-
   // The queue: ready, unblocked, in focus, and nobody has taken it. Agents
   // start nothing outside focus, so ready work there is not overdue.
   const focused = await focusOf(gh, issues);
@@ -309,15 +304,11 @@ export async function sweep(gh, { now = Date.now(), limits }) {
     flag('Waiting for your review', `qa:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
   }
 
-  // Work the owner asked a task-breakdown tick for that none has taken, and
-  // work it made ready that waits for the owner's approval, until it leaves Backlog.
+  // Work the owner asked a task-breakdown or architect tick for that none has taken.
   for (const item of issues.filter((i) => !whyNotBreakdown(i))) {
     const since = item.updated_at ?? item.created_at;
     if (hoursSince(since, now) <= limits.ready) continue;
     flag('Waiting for task breakdown', `task-breakdown:${item.number}`, `${refText(item.number)} ${item.title} (${requestKind(item)})`, { number: item.number, since });
-  }
-  for (const item of issues.filter((i) => labelNames(i).includes(NEEDS_APPROVAL) && i.stage === 'backlog' && !requestKind(i))) {
-    flag('Waiting for your approval', `needs-approval:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
   }
 
   // Agents that stopped ticking.
