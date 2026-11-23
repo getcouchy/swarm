@@ -1143,15 +1143,18 @@ test('sweep: a task-breakdown lock on Backlog work is fine; the desk lists work 
     issue(1, ['swarm/task-breakdown', 'swarm/agent/claude-task-breakdown-1'], { stage: 'backlog', updated_at: ago(1) }),
     issue(2, ['swarm/design'], { stage: 'backlog', updated_at: ago(6) }),
     issue(3, ['swarm/task-breakdown'], { stage: 'backlog', updated_at: ago(1) }), // not waiting long yet
-    issue(4, ['swarm/task-breakdown-done'], { stage: 'backlog' }),
-    issue(5, ['swarm/task-breakdown-done'], { stage: 'unstarted' }), // approved: in Todo
+    issue(4, ['swarm/needs-approval'], { stage: 'backlog' }),
+    issue(5, ['swarm/needs-approval'], { stage: 'unstarted' }), // approved: in Todo
     issue(6, ['couchy-ux/approved', 'swarm/agent/claude-2'], { stage: 'backlog', updated_at: ago(1) }),
   ];
   const lockedAt = (name) => [{ event: 'labeled', label: { name }, created_at: ago(0.5) }];
-  const { overdue } = await sweep(fake({ issues, events: { 1: lockedAt('swarm/agent/claude-task-breakdown-1'), 6: lockedAt('swarm/agent/claude-2') } }), { now: NOW, limits: LIMITS });
+  issues.push(issue(7, ['swarm/needs-approval'], { stage: 'needs-human' }));
+  const gh = fake({ issues, closed: [issue(8, ['swarm/needs-approval'], { state: 'closed', stage: 'completed' })], events: { 1: lockedAt('swarm/agent/claude-task-breakdown-1'), 6: lockedAt('swarm/agent/claude-2') } });
+  const { overdue } = await sweep(gh, { now: NOW, limits: LIMITS });
+  assert.deepEqual(gh.log.filter((l) => l.includes('needs-approval')), ['remove 5 swarm/needs-approval', 'remove 8 swarm/needs-approval'], 'out of Backlog is approved; a question to the owner is not');
   const keys = overdue.map((o) => o.key);
   assert.ok(!keys.includes('unapproved:1'));
   assert.ok(keys.includes('unapproved:6'), 'a builder holding Backlog work still is');
   assert.deepEqual(overdue.filter((o) => o.section === 'Waiting for task breakdown').map((o) => o.line), ['#2 Issue 2 (design)']);
-  assert.deepEqual(overdue.filter((o) => o.section === 'Task breakdown done, waiting for you').map((o) => o.line), ['#4 Issue 4']);
+  assert.deepEqual(overdue.filter((o) => o.section === 'Waiting for your approval').map((o) => o.line), ['#4 Issue 4']);
 });

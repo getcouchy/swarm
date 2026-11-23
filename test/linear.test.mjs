@@ -418,8 +418,8 @@ test('desk: the sweep of a repository other than the team\'s first makes the des
 test('a work item made for a repository other than the team\'s first carries that repository\'s label', async () => {
   const fake = fakeLinear({ issues: [], labels: [{ id: 'l-runner', name: 'repo/agent-runner' }] });
   const agent = t({ repo: 'getcouchy/couchy-agent' }, client(fake, { repo: 'getcouchy/couchy-agent', defaultRepo: 'getcouchy/couchy' }));
-  const made = await agent.createIssue('Agent work', 'Body.', ['swarm/task-breakdown-done']);
-  assert.deepEqual([made.repo, labelNamesOf(made)], ['getcouchy/couchy-agent', ['swarm/task-breakdown-done', 'repo/couchy-agent']]);
+  const made = await agent.createIssue('Agent work', 'Body.', ['swarm/needs-approval']);
+  assert.deepEqual([made.repo, labelNamesOf(made)], ['getcouchy/couchy-agent', ['swarm/needs-approval', 'repo/couchy-agent']]);
   const named = await agent.createIssue('Runner work', 'Body.', ['repo/agent-runner']);
   assert.deepEqual([named.repo, labelNamesOf(named)], ['getcouchy/agent-runner', ['repo/agent-runner']], 'a repository named by the caller stands');
   const couchy = await t({ repo: 'getcouchy/couchy' }, client(fake)).createIssue('Couchy work', 'Body.');
@@ -490,7 +490,7 @@ test('task breakdown: child items are made in Backlog under their parent; relati
   assert.equal(await claim(items, 'COU-1', 'claude-task-breakdown-1'), true);
   assert.equal(fake.issues[0].stateId, 's-todo', 'breaking down is not building');
 
-  const child = await items.createIssue('Slice one', '### Scope\n\n- this', ['swarm/task-breakdown-done'], { parent: 'COUCHYUX-1', priority: 'high' });
+  const child = await items.createIssue('Slice one', '### Scope\n\n- this', ['swarm/needs-approval'], { parent: 'COUCHYUX-1', priority: 'high' });
   const made = fake.issues.at(-1);
   assert.deepEqual([made.stateId, made.parentId, made.priority, made.description], ['s-backlog', 'i1', 2, '### Scope\n\n- this']);
   await items.relate(child.key, 'blocked_by', ['COU-2']);
@@ -608,7 +608,7 @@ test('label groups: a child reads as the protocol names it, and goes back to its
   assert.deepEqual([as('claude-1', 'swarm-agent'), as('needs-human', 'swarm'), as('needs-shaping', 'swarm'), as('needs-ios-sim', 'swarm'), as('blocked', 'swarm'),
     as('agent-runner', 'repo'), as('platform/ios', 'platform'), as('web', 'platform'), as('swarm/blocked')],
   ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-shaping', 'swarm/needs/ios-sim', 'swarm/blocked', 'repo/agent-runner', 'platform/ios', 'platform/web', 'swarm/blocked']);
-  for (const name of ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs/ios-sim', 'swarm/qa', 'repo/ops']) {
+  for (const name of ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-approval', 'swarm/needs/ios-sim', 'swarm/qa', 'repo/ops']) {
     const { group, child } = linearPlace(name);
     assert.equal(as(child, group), name, `${name} round-trips`);
   }
@@ -620,7 +620,7 @@ test('a label still under its old name in Linear is the one the tools read, add 
   const fake = grouped({ labels, issues: [item(1, { labelIds: ['l-shaping'] })] });
   const items = t({ repo: 'getcouchy/couchy' }, client(fake));
   assert.equal(requestKind(await items.issue('COU-1')), 'task-breakdown');
-  await items.addLabel('COU-1', 'swarm/task-breakdown-done');
+  await items.addLabel('COU-1', 'swarm/needs-approval');
   await items.removeLabel('COU-1', 'swarm/task-breakdown');
   assert.deepEqual([fake.issues[0].labelIds, fake.labels.length], [['l-shaped'], labels.length]);
 });

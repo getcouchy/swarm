@@ -62,7 +62,8 @@ work out of Review but the owner, who moves it to Done when it passes, or back t
 Todo with a comment saying which criterion failed. Nothing takes work out of
 Needs Human but the owner either, who moves it on (to Backlog or Todo) once
 they have answered. Don't move a work item to Review or Done yourself (`submit` moves
-a technical design to Review), or to Needs Human but with `needs-human`.
+a technical design to Review, and a "Task breakdown" item to Done), or to Needs
+Human but with `needs-human`.
 
 An item back in Todo from Review is not new work: what shipped stays, and you fix
 only what the owner's comment says failed, on a fresh branch, in a new PR that
@@ -153,20 +154,20 @@ Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 | `swarm/task-breakdown` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "Task-breakdown ticks"); no tick builds it meanwhile | the owner only |
 | `swarm/design` | break it down, and design it in getcouchy/couchy-design: spec and wireframes (see "Task-breakdown ticks"); no tick builds it meanwhile | the owner only |
 | `swarm/tech-design` | write the technical design for a merged spec, with its proposed issue sequence (see "Architect ticks"); no tick builds it, and no task-breakdown tick takes it. It stays on: the design is done when the work item is (Done, once the design's PR merges) | the owner, or couchy-design's hand-off workflow when a spec merges |
-| `swarm/task-breakdown-done` | a task-breakdown tick has done what `swarm/task-breakdown` or `swarm/design` asked; the owner reviews it | a task-breakdown tick, in place of the request |
+| `swarm/needs-approval` | a work item in Backlog that a task-breakdown tick has made ready to build; moving it to Todo approves it | a task-breakdown tick, in place of the request, and on each slice it creates; the sweep takes it off once the item leaves Backlog (but for Needs Human) |
 | `swarm/qa` | when its closing PR merges, the work item goes to Review, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
 | `swarm/blocked` | the work item waits on other work: an open blocker, for views to filter on; ask for the blockers yourself before taking work. Not the Needs Human state, which waits on a person | the sweep only; it takes off any it finds without an open blocker |
 | `swarm/needs-human` | on a PR: a real fork or a step only a person can take; pages the owner and holds the merge. A work item goes to the Needs Human state instead | an agent, after its comment |
 | `swarm/hold` | holds a PR's merge for a wait an agent can end; pages nobody | an agent, with a comment |
 | `swarm/hands-off` | the owner is handling this work item or PR: no agent starts, fixes, continues, reviews or merges it | the owner only |
-| `swarm/needs-<thing>` | the work can't be checked without `<thing>` (see "What you may take"); the tools call it `swarm/needs/<thing>` | whoever writes the work item |
+| `swarm/needs-<thing>` | (any but `needs-human` and `needs-approval`) the work can't be checked without `<thing>` (see "What you may take"); the tools call it `swarm/needs/<thing>` | whoever writes the work item |
 | `swarm/desk` | marks the Agent desk work item | the sweep |
 
 Until 2026-11-12 these were `agent/<name>`, `focus`, `needs-human`,
 `merge/hold`, `needs/<thing>` and `agent-desk`, and until 2026-11-20
 `swarm/task-breakdown` was `swarm/groom`, then `swarm/needs-shaping` until
-2026-11-23, when `swarm/shaped` became `swarm/task-breakdown-done`. The tools still read the old names,
-and the sweep renames any it finds, but write only the new ones. The sweep
+2026-11-23, when `swarm/shaped` became `swarm/needs-approval`. The tools still
+read the old names, and the sweep renames any it finds, but write only the new ones. The sweep
 also moves a work item still labelled `swarm/needs-human` to Needs Human.
 
 ## The repositories
@@ -529,7 +530,7 @@ or `swarm/design` that is in Backlog or Todo, nobody holds, and is not
 `swarm/hands-off`. Labelled work in focus comes
 first; then priority; then the item more open work waits on. It reviews,
 fixes and merges nothing, and never moves a work item's state, but to close
-one its slices replace (below): the owner moves the finished work to Todo, and
+one it split or filed work from (below): the owner moves the finished work to Todo, and
 that is the approval. While an item carries
 either label no tick builds it, even in Todo.
 
@@ -562,7 +563,7 @@ checked without it.
 Work too big for one PR of a day or less becomes **slices**: work items of
 their own beside the item, never sub-issues of it. Set the item's labels
 first, then create each slice with `agent.mjs create <key> <file.md>` (first
-line `# <title>`). A slice is made in Backlog, already `swarm/task-breakdown-done`, with
+line `# <title>`). A slice is made in Backlog, already `swarm/needs-approval`, with
 the item's project, priority and sprint, and its product labels (those
 Linear hasn't retired), `swarm/focus` and `swarm/needs/<thing>`.
 `--labels=area/api,-platform/web` changes the labels for one slice: a label
@@ -605,7 +606,8 @@ architect: you copy it, you don't redesign it. For each entry, in order:
    and any keys it gives>`.
 
 Then `agent.mjs submit <key> "<the design, and each entry's number with its
-key>" --replaced-by=<every key you made>`. Change no entry's scope, acceptance
+key>" --filed=<every key you made>`: the work item is Done, keeps
+`swarm/task-breakdown`, and its comment lists them. Change no entry's scope, acceptance
 or design. An entry you can't file as written (a section missing, a contract
 it names that isn't there, a check that isn't the spec's) stops the job before
 you create anything: comment on the work item what is missing, entry by entry,
@@ -630,9 +632,9 @@ and the tick moves on.
 
 **Done:** `agent.mjs submit <key> "<summary>"` comments the summary (what
 changed, the slices, the design PR, and anything the owner should decide),
-swaps `swarm/task-breakdown` or `swarm/design` for `swarm/task-breakdown-done`, and takes your lock
-off. With `--replaced-by` it closes the item instead of marking it done
-(above). A breakdown that isn't finished when the tick ends stays locked until
+swaps `swarm/task-breakdown` or `swarm/design` for `swarm/needs-approval`, and takes your lock
+off. One already in Todo gets no `swarm/needs-approval`. With `--replaced-by` the
+item is Canceled instead, and with `--filed` Done with its label kept (above). A breakdown that isn't finished when the tick ends stays locked until
 `finish`, keeps its label, and the next task-breakdown tick carries it on from the
 comments and the PR.
 
@@ -691,8 +693,8 @@ work item in Linear current with whatever is overdue: a ready work item in focus
 no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
 waiting on a person (a work item in Needs Human, a PR labelled `swarm/needs-human`;
-with the work items it holds up, those in focus marked), work waiting in Review, work waiting for a task-breakdown tick, broken-down work in
-Backlog waiting for the owner, an agent that stopped ticking. A task-breakdown
+with the work items it holds up, those in focus marked), work waiting in Review, work waiting for a task-breakdown tick, work in
+Backlog waiting for the owner's approval, an agent that stopped ticking. A task-breakdown
 tick's lock on a Backlog item is expected; any other tick's is listed.
 
 Another job there runs `reviewed.mjs` every 2 minutes and posts the `reviewed`

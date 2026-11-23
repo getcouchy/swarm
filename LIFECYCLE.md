@@ -148,7 +148,7 @@ design, and the architect's design is reviewed by another agent.
   entry's "Waits on". The tick copies; it changes no scope, acceptance or
   design. Each contract an entry names is pasted in full: a builder's sandbox
   may not reach couchy-design, so nothing is left as a link. The "Task breakdown: <slug>"
-  work item closes in their favour.
+  work item is then Done, and keeps `swarm/task-breakdown`.
 - **Gate:** the owner moves the packages to Todo after merging the design.
   That is the approval for work, as it is today.
 
