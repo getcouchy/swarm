@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, openParents, pullState, isReviewOnly, isSwarmPull, oldNames, providers, linkedPulls, reviewedStatus, requestKind, whyNotClaimable, whyNotBreakdown,
+  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, openParents, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, requestKind, whyNotClaimable, whyNotBreakdown,
 } from '../lib/rules.mjs';
 import { client } from '../lib/github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from '../sweep.mjs';
@@ -808,13 +808,11 @@ test('labels from before the swarm/ namespace are read as today\'s and moved acr
   for (const [old, now] of [['agent/claude-2', 'swarm/agent/claude-2'], ['needs-human', 'swarm/needs-human'], ['merge/hold', 'swarm/hold'],
     ['focus', 'swarm/focus'], ['agent-desk', 'swarm/desk'], ['needs/ios-sim', 'swarm/needs/ios-sim']]) {
     assert.equal(canonical(old), now);
-    assert.deepEqual(oldNames(now), [old]);
+    assert.equal(oldName(now), old);
     assert.equal(canonical(now), now);
   }
   assert.equal(canonical('couchy-ux/approved'), 'couchy-ux/approved');
-  assert.deepEqual(oldNames('area/app'), []);
-  assert.deepEqual(oldNames('swarm/task-breakdown'), ['swarm/groom', 'swarm/needs-shaping'], 'a label can have had more than one');
-  assert.deepEqual([requestKind(issue(1, ['swarm/' + 'needs-shaping'])), requestKind(issue(1, ['swarm/' + 'groom']))], ['task-breakdown', 'task-breakdown']);
+  assert.equal(oldName('area/app'), null);
 
   // An issue held under the old name is held: nobody else claims it, and its holder resumes it.
   const old = () => [issue(1, ['couchy-ux/approved', 'swarm/focus', 'agent/' + 'grok']), issue(2, ['couchy-ux/approved', 'swarm/focus', 'needs/' + 'ios-sim'])];

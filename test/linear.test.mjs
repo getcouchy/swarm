@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_TEAMS, appToken, linearClient, linearPlace, protocolName } from '../lib/linear.mjs';
 import { LabelGroupTaken, PROVIDER_METHODS, assertProvider, currentKey, isKey, parsePairs, tracker } from '../lib/workitems.mjs';
-import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, requestKind, whyNotClaimable } from '../lib/rules.mjs';
+import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from '../lib/rules.mjs';
 import { claim, focusOf, next } from '../lib/tick.mjs';
 import { findDesk, moveHandedOff, followPulls, readLinked, writeDesk } from '../sweep.mjs';
 import { run } from '../lib/commands.mjs';
@@ -593,7 +593,7 @@ const GROUPED = [
   { id: 'g-platform', name: 'platform', isGroup: true, groupType: 'singleSelect' },
   { id: 'l-claude-1', name: 'claude-1', parent: { id: 'g-agent', name: 'swarm-agent' } },
   { id: 'l-human', name: 'needs-human', parent: { id: 'g-swarm', name: 'swarm' } },
-  { id: 'l-shaping', name: 'needs-shaping', parent: { id: 'g-swarm', name: 'swarm' } },
+  { id: 'l-approval', name: 'needs-approval', parent: { id: 'g-swarm', name: 'swarm' } },
   { id: 'l-sim', name: 'needs-ios-sim', parent: { id: 'g-swarm', name: 'swarm' } },
   { id: 'l-blocked', name: 'blocked', parent: { id: 'g-swarm', name: 'swarm' } },
   { id: 'l-blocked-flat', name: 'swarm/blocked' },
@@ -605,24 +605,14 @@ const grouped = (more = {}) => fakeLinear({ labels: GROUPED.map((l) => ({ ...l }
 
 test('label groups: a child reads as the protocol names it, and goes back to its group', () => {
   const as = (name, group) => protocolName({ name, parent: group ? { name: group } : null });
-  assert.deepEqual([as('claude-1', 'swarm-agent'), as('needs-human', 'swarm'), as('needs-shaping', 'swarm'), as('needs-ios-sim', 'swarm'), as('blocked', 'swarm'),
+  assert.deepEqual([as('claude-1', 'swarm-agent'), as('needs-human', 'swarm'), as('needs-approval', 'swarm'), as('needs-ios-sim', 'swarm'), as('blocked', 'swarm'),
     as('agent-runner', 'repo'), as('platform/ios', 'platform'), as('web', 'platform'), as('swarm/blocked')],
-  ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-shaping', 'swarm/needs/ios-sim', 'swarm/blocked', 'repo/agent-runner', 'platform/ios', 'platform/web', 'swarm/blocked']);
+  ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-approval', 'swarm/needs/ios-sim', 'swarm/blocked', 'repo/agent-runner', 'platform/ios', 'platform/web', 'swarm/blocked']);
   for (const name of ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-approval', 'swarm/needs/ios-sim', 'swarm/qa', 'repo/ops']) {
     const { group, child } = linearPlace(name);
     assert.equal(as(child, group), name, `${name} round-trips`);
   }
   assert.equal(linearPlace('conflicts-with-main'), null);
-});
-
-test('a label still under its old name in Linear is the one the tools read, add and take off; no second one is made', async () => {
-  const labels = [...GROUPED, { id: 'l-shaped', name: 'shaped', parent: { id: 'g-swarm', name: 'swarm' } }].map((l) => ({ ...l }));
-  const fake = grouped({ labels, issues: [item(1, { labelIds: ['l-shaping'] })] });
-  const items = t({ repo: 'getcouchy/couchy' }, client(fake));
-  assert.equal(requestKind(await items.issue('COU-1')), 'task-breakdown');
-  await items.addLabel('COU-1', 'swarm/needs-approval');
-  await items.removeLabel('COU-1', 'swarm/task-breakdown');
-  assert.deepEqual([fake.issues[0].labelIds, fake.labels.length], [['l-shaped'], labels.length]);
 });
 
 test('label groups: items read grouped labels, the repo group routes them, new labels are made in their group', async () => {

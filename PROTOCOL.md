@@ -165,9 +165,8 @@ Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 
 Until 2026-11-12 these were `agent/<name>`, `focus`, `needs-human`,
 `merge/hold`, `needs/<thing>` and `agent-desk`, and until 2026-11-20
-`swarm/task-breakdown` was `swarm/groom`, then `swarm/needs-shaping` until
-2026-11-23, when `swarm/shaped` became `swarm/needs-approval`. The tools still
-read the old names, and the sweep renames any it finds, but write only the new ones. The sweep
+`swarm/task-breakdown` was `swarm/groom`. The tools still read the old names,
+and the sweep renames any it finds, but write only the new ones. The sweep
 also moves a work item still labelled `swarm/needs-human` to Needs Human.
 
 ## The repositories
