@@ -673,7 +673,8 @@ the idea to QA, and who checks what along it.
 
 A scheduled job runs `sweep.mjs` for a home repository. For getcouchy/couchy
 it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
-"Agent sweep"). It removes a lapsed claim and settles a doubled one, keeps
+"Agent sweep"), and getcouchy/couchy-agent has one of its own beside it. Each
+sweeps only its own repository's work items and pull requests. It removes a lapsed claim and settles a doubled one, keeps
 `swarm/blocked` on the open work items that have an open blocker, moves
 work items with their pull requests (In Progress from Todo, never Backlog, with
 a link while one is open, QA or Done once one that closes them merges), and it keeps the **Agent desk**

@@ -4,7 +4,8 @@
 image: node:24.11.1-alpine3.22
 
 github:
-  # Required: owner/name of the repository the jobs work on.
+  # Required: owner/name of the repository the jobs work on, unless every job
+  # sets its own `repository`.
   repository: ""
   # The ref scripts are taken from, unless a job sets its own.
   ref: main
@@ -49,7 +50,10 @@ defaults:
 # One CronJob per entry, named by its key.
 #   schedule   cron expression; `timeZone` is optional
 #   run        the script and its arguments, from the root of `source`
-#   source     the repository that holds the script (github.repository when
+#   repository the repository this job works on (github.repository when unset),
+#              which the App must be installed on: a second repository's
+#              sweep is a job with the built-in one's source, ref and run
+#   source     the repository that holds the script (the job's repository when
 #              unset; another one must be public or in the App's installation)
 #   ref        the ref of `source` to run (github.ref when unset; the two
 #              built-in jobs set main, getcouchy/swarm's branch)

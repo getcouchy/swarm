@@ -57,6 +57,22 @@ test('an added job without source runs from github.repository', { skip }, () => 
   assert.match(stdout, /name: SOURCE_REPOSITORY\s+value: "acme\/app"/);
 });
 
+test("a job's repository overrides github.repository, and is where it runs from without a source", { skip }, () => {
+  const { stdout, stderr } = render(repo, 'jobs.agent-reviewed.enabled=false',
+    'jobs.other-sweep.repository=acme/other', 'jobs.other-sweep.schedule=*/10 * * * *',
+    'jobs.other-sweep.source=getcouchy/swarm', 'jobs.other-sweep.run={sweep.mjs}',
+    'jobs.mine.repository=acme/other', 'jobs.mine.schedule=0 * * * *', 'jobs.mine.run={tools/x.mjs}');
+  const job = (name) => stdout.split(/^---$/m).find((doc) => doc.includes(`\n  name: ${name}\n`));
+  assert.deepEqual(cronJobNames(stdout), ['agent-sweep', 'mine', 'other-sweep'], stderr);
+  assert.match(job('agent-sweep'), /name: GITHUB_REPOSITORY\s+value: "acme\/app"/);
+  assert.match(job('other-sweep'), /name: GITHUB_REPOSITORY\s+value: "acme\/other"/);
+  assert.match(job('other-sweep'), /name: SOURCE_REPOSITORY\s+value: "getcouchy\/swarm"/);
+  assert.match(job('mine'), /name: SOURCE_REPOSITORY\s+value: "acme\/other"/);
+  const alone = render('jobs.agent-reviewed.enabled=false', 'jobs.agent-sweep.repository=acme/app');
+  assert.equal(alone.status, 0, 'github.repository can go unset when every job names its own');
+  assert.match(render('jobs.agent-reviewed.enabled=false').stderr, /jobs\.agent-sweep\.repository/);
+});
+
 test('secretEnv needs extraSecretName', { skip }, () => {
   const r = render(repo, 'jobs.agent-sweep.secretEnv.K=K');
   assert.notEqual(r.status, 0);
