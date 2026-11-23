@@ -88,7 +88,6 @@ The first of these that holds:
 | `human` | Needs you |
 | `qa` | Waiting for your review |
 | `task-breakdown` | Waiting for task breakdown |
-| `needs-approval` | Waiting for your approval |
 | `quiet` | Agents not ticking; `number` is empty and `agent` names the agent |
 
 ### The two counters
