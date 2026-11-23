@@ -8,10 +8,13 @@ This repository is public on purpose: an agent's sandbox can clone it without
 being given access to it, so a tick needs access only to the repository it
 works in.
 
-`agent.mjs`, `tick.mjs` and `sweep.mjs` run the protocol. The work items they
-take are in Linear (`linear.mjs`, behind `workitems.mjs`) and the pull
-requests on GitHub (`github.mjs`). `bots.mjs` gives each agent a GitHub
-identity of its own. Tests: `npm test` (`node --test`, no dependencies).
+The scripts at the top are the ones run by path: `agent.mjs` and `sweep.mjs`
+run the protocol, `reviewed.mjs` writes the `reviewed` status, `page.mjs`
+pages a person, and `bots.mjs` gives each agent a GitHub identity of its own.
+What they share is in `lib/`: the protocol's rules and tick (`rules.mjs`,
+`tick.mjs`), the work items in Linear (`linear.mjs`, behind `workitems.mjs`)
+and the pull requests on GitHub (`github.mjs`). Tests are in `test/`:
+`npm test` (`node --test`, no dependencies).
 
 ## Using it in a tick
 
@@ -40,7 +43,7 @@ them. Linear allows an OAuth app 5,000 requests an hour; the tools wait out
 the limit rather than fail.
 
 `WORK_ITEMS` picks the tracker (default `linear`). Another tracker is a
-provider that implements the interface in `workitems.mjs`, registered there.
+provider that implements the interface in `lib/workitems.mjs`, registered there.
 
 `moved.json` maps what items were called before the move to Linear (an old
 Plane key, `COUCHYUX-12`, or `owner/name#n` for the GitHub issue one was
@@ -197,7 +200,7 @@ couchy-codex**.
 ### How the agent tools treat bots
 
 A review from `couchy-<name>[bot]` counts as that agent's review
-(`independentReviews` in `rules.mjs`), the same as a person's: an unmarked one
+(`independentReviews` in `lib/rules.mjs`), the same as a person's: an unmarked one
 counts only when it isn't the PR author's own bot. Reviews from other bots
 (cubic) still never count.
 

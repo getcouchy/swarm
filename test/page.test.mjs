@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { pageFor, question, request } from './page.mjs';
+import { pageFor, question, request } from '../page.mjs';
 
 const item = { number: 982, title: 'Guarded file nodes 3', html_url: 'https://github.com/o/r/issues/982', labels: [{ name: 'swarm/needs-human' }] };
 const label = { name: 'swarm/needs-human' };

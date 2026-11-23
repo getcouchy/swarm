@@ -2,17 +2,17 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { METRICS, push, pushRun, registry } from './metrics.mjs';
+import { METRICS, push, pushRun, registry } from '../lib/metrics.mjs';
 
 test('docs/metrics.md lists exactly the defined metrics', () => {
-  const doc = readFileSync(new URL('./docs/metrics.md', import.meta.url), 'utf8');
+  const doc = readFileSync(new URL('../docs/metrics.md', import.meta.url), 'utf8');
   const JOBS = ['swarm_sweep', 'swarm_reviewed']; // the Pushgateway job names, which the doc also explains
   const named = new Set(doc.match(/swarm_[a-z_]+/g).filter((n) => !JOBS.includes(n)));
   assert.deepEqual([...named].sort(), Object.keys(METRICS).sort());
 });
 
 test('dashboard: every swarm_ metric it queries is defined; none is left out', () => {
-  const text = readFileSync(new URL('./charts/swarm/dashboards/swarm.json', import.meta.url), 'utf8');
+  const text = readFileSync(new URL('../charts/swarm/dashboards/swarm.json', import.meta.url), 'utf8');
   const dash = JSON.parse(text);
   assert.equal(dash.uid, 'swarm');
   const used = new Set(text.match(/swarm_[a-z_]+/g).filter((n) => !['swarm_sweep', 'swarm_reviewed'].includes(n)));
@@ -25,7 +25,7 @@ test('dashboard: every swarm_ metric it queries is defined; none is left out', (
 });
 
 test('dashboard: the agent filter lists every agent a series names; datasources default to the usual uids', () => {
-  const dash = JSON.parse(readFileSync(new URL('./charts/swarm/dashboards/swarm.json', import.meta.url), 'utf8'));
+  const dash = JSON.parse(readFileSync(new URL('../charts/swarm/dashboards/swarm.json', import.meta.url), 'utf8'));
   const variable = (name) => dash.templating.list.find((v) => v.name === name);
   // Heartbeat ids alone would miss an agent known only by its lock or its bot.
   assert.match(variable('agent').query.query, /__name__=~"swarm_\.\+"/);

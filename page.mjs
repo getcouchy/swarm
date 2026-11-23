@@ -18,8 +18,8 @@
 
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { fromEnv } from './github.mjs';
-import { NEEDS_HUMAN, canonical, labelNames } from './rules.mjs';
+import { fromEnv } from './lib/github.mjs';
+import { NEEDS_HUMAN, canonical, labelNames } from './lib/rules.mjs';
 
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 

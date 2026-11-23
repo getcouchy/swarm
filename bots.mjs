@@ -24,7 +24,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { agentFromLogin, isValidProvider } from './rules.mjs';
+import { agentFromLogin, isValidProvider } from './lib/rules.mjs';
 
 const API = 'https://api.github.com';
 const HEADERS = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'couchy-bots' };

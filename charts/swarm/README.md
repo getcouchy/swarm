@@ -68,7 +68,7 @@ and generate a private key.
 
 Don't name the App `couchy-<something>`: the agent rules read
 `couchy-<name>[bot]` as an agent's own bot (`agentFromLogin` in
-[`rules.mjs`](../../rules.mjs)), and its reviews would count as an agent's.
+[`lib/rules.mjs`](../../lib/rules.mjs)), and its reviews would count as an agent's.
 
 If `reviewed` is a required status check, the branch rule must accept it from
 this App. Set `REVIEWED_CREATOR` to the App's bot login (`<app-slug>[bot]`) so
