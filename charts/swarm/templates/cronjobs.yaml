@@ -1,6 +1,7 @@
 {{- range $name, $job := .Values.jobs }}
 {{- if ne (toString $job.enabled) "false" }}
 {{- $d := $.Values.defaults }}
+{{- $repo := $job.repository | default $.Values.github.repository }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -51,9 +52,9 @@ spec:
                 {{- end }}
               env:
                 - name: GITHUB_REPOSITORY
-                  value: {{ required "github.repository is required: the owner/name of the repository the jobs work on" $.Values.github.repository | quote }}
+                  value: {{ required (printf "github.repository (or jobs.%s.repository) is required: the owner/name of the repository the job works on" $name) $repo | quote }}
                 - name: SOURCE_REPOSITORY
-                  value: {{ $job.source | default $.Values.github.repository | quote }}
+                  value: {{ $job.source | default $repo | quote }}
                 - name: SOURCE_REF
                   value: {{ $job.ref | default $.Values.github.ref | quote }}
                 - name: GITHUB_SERVER_URL

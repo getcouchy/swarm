@@ -1,6 +1,6 @@
 # swarm chart
 
-Runs the swarm's housekeeping for one GitHub repository as Kubernetes CronJobs:
+Runs the swarm's housekeeping for a GitHub repository as Kubernetes CronJobs:
 the `reviewed` status, the sweep, and any script of your own that only needs a
 GitHub token and the API. None of them needs a PR's code, so they don't have to
 take a CI runner.
@@ -33,6 +33,12 @@ jobs:
     run: [tools/report.mjs, --send]
     secretEnv:
       MAIL_API_KEY: MAIL_API_KEY
+  other-sweep:                 # sweep a second repository, with its own Agent desk
+    repository: acme/other     # what github.repository is for this job alone
+    schedule: "*/10 * * * *"
+    source: getcouchy/swarm
+    ref: main
+    run: [sweep.mjs]
 ```
 
 [`values.yaml`](values.yaml) lists every key a job takes.
@@ -63,8 +69,9 @@ Create a GitHub App owned by your org, with no webhook. Repository permissions:
 Contents read, Issues write, Pull requests write, Commit statuses write, Checks
 read, Metadata read. A script of yours that writes an org project also needs
 the organization permission Projects write. Install it on the repository in
-`github.repository` and on any private repository a job names as its `source`,
-and generate a private key.
+`github.repository`, on every repository a job names as its `repository`, and
+on any private repository a job names as its `source`, and generate a private
+key.
 
 Don't name the App `couchy-<something>`: the agent rules read
 `couchy-<name>[bot]` as an agent's own bot (`agentFromLogin` in
