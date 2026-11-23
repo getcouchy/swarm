@@ -130,6 +130,16 @@ test('shaped: the summary, then swarm/shaped in place of the request, and the lo
   assert.deepEqual(c.item.labels.map((l) => l.name), ['platform/web', 'swarm/shaped']);
 });
 
+test('shaped: a technical design keeps its label and waits in Review until its PR merges', async () => {
+  const c = fakeClient(item(['swarm/tech-design', 'swarm/agent/claude-shape-1', 'area/app'], { stage: 'unstarted' }));
+  assert.deepEqual(await run('shaped', ['COU-7', 'Design in getcouchy/couchy-design#154.'], c), { key: 'COU-7', shaped: true, stage: 'qa', released: ['COU-7'] });
+  assert.deepEqual(c.log, ['comment Design in getcouchy/couchy-design#154.', 'stage COU-7 qa', 'remove swarm/agent/claude-shape-1'], 'in Review before the lock comes off, so no other architect tick takes it');
+  assert.deepEqual(c.item.labels.map((l) => l.name), ['swarm/tech-design', 'area/app']);
+  const merged = fakeClient(item(['swarm/tech-design', 'swarm/agent/claude-shape-1'], { stage: 'completed', state: 'closed' }));
+  assert.equal((await run('shaped', ['COU-7', 'Design.'], merged)).stage, 'completed', 'a design the owner has merged already stays Done');
+  assert.ok(!merged.log.some((l) => l.startsWith('stage')));
+});
+
 test('create: a label the tracker has retired stays behind', async () => {
   const from = item(['swarm/agent/claude-shape-1', 'platform/web', 'area/app']);
   from.labels.find((l) => l.name === 'area/app').retired = true;

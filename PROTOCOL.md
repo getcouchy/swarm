@@ -46,7 +46,7 @@ What a work item's state means here:
 | Todo | ready for an agent to take |
 | In Progress, In Review | an agent has it, or a pull request for it is open; with neither, it is ready again |
 | Needs Human | waiting on a person: an agent asked a question only they can answer, or needs a step only they can take (see "When to call a person"); no agent takes it |
-| Review | a pull request that closes it merged, and the owner is walking its acceptance criteria; no agent takes it, and it blocks nothing |
+| Review | waiting on the owner's review; no agent takes it. Either a pull request that closes it merged and the owner is walking its acceptance criteria (QA), and it blocks nothing; or it is a technical design whose pull request waits for the owner to merge it, and it blocks until then |
 | Done | a pull request that closes it merged, and it needed no QA or passed it |
 | Canceled | not doing it |
 
@@ -61,8 +61,8 @@ or none of `area/api`, `area/tooling` and `area/ci`. Add
 work out of Review but the owner, who moves it to Done when it passes, or back to
 Todo with a comment saying which criterion failed. Nothing takes work out of
 Needs Human but the owner either, who moves it on (to Backlog or Todo) once
-they have answered. Don't move a work item to Review or Done yourself, or to Needs
-Human but with `needs-human`.
+they have answered. Don't move a work item to Review or Done yourself (`shaped` moves
+a technical design to Review), or to Needs Human but with `needs-human`.
 
 An item back in Todo from Review is not new work: what shipped stays, and you fix
 only what the owner's comment says failed, on a fresh branch, in a new PR that
@@ -152,8 +152,8 @@ Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
 | `swarm/needs-shaping` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
 | `swarm/design` | groom it, and design it in getcouchy/couchy-design: spec and wireframes (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
-| `swarm/tech-design` | write the technical design for a merged spec, with its proposed issue sequence (see "Architect ticks"); no tick builds it meanwhile, and no shaping tick takes it | the owner only |
-| `swarm/shaped` | a shaping tick has done what `swarm/needs-shaping` or `swarm/design` asked, or an architect tick what `swarm/tech-design` asked; the owner reviews it | a shaping or architect tick, in place of the request |
+| `swarm/tech-design` | write the technical design for a merged spec, with its proposed issue sequence (see "Architect ticks"); no tick builds it, and no shaping tick takes it. It stays on: the design is done when the work item is (Done, once the design's PR merges) | the owner, or couchy-design's hand-off workflow when a spec merges |
+| `swarm/shaped` | a shaping tick has done what `swarm/needs-shaping` or `swarm/design` asked; the owner reviews it | a shaping tick, in place of the request |
 | `swarm/qa` | when its closing PR merges, the work item goes to Review, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
 | `swarm/blocked` | the work item waits on other work: an open blocker, for views to filter on; ask for the blockers yourself before taking work. Not the Needs Human state, which waits on a person | the sweep only; it takes off any it finds without an open blocker |
 | `swarm/needs-human` | on a PR: a real fork or a step only a person can take; pages the owner and holds the merge. A work item goes to the Needs Human state instead | an agent, after its comment |
@@ -585,11 +585,12 @@ The item doesn't stay behind to hold its slices. It ends one of two ways:
 
 Don't create work outside the item you hold.
 
-**A merged technical design.** The work item is a feature's "Technical
-design: <feature>", and its `swarm/needs-shaping` asks you to file the design's
-work items. Clone getcouchy/couchy-design beside your checkout and open
-`features/<slug>/tech-design.md` on `main` (the architect's `shaped` comment
-names it). Its "Proposed issue sequence" is already cut and written by the
+**A merged technical design.** The work item is "Shape: <slug>", which
+couchy-design's hand-off workflow files when the owner merges a design, and its
+`swarm/needs-shaping` asks you to file the design's work items. Clone
+getcouchy/couchy-design beside your checkout and open
+`features/<slug>/tech-design.md` on `main` (the description names it). The
+"Technical design" work item is done: leave it as it is. Its "Proposed issue sequence" is already cut and written by the
 architect: you copy it, you don't redesign it. For each entry, in order:
 
 1. Write its file: `# <the entry's title>`, then its goal paragraph with a
@@ -608,7 +609,8 @@ or design. An entry you can't file as written (a section missing, a contract
 it names that isn't there, a check that isn't the spec's) stops the job before
 you create anything: comment on the work item what is missing, entry by entry,
 then `agent.mjs needs-human <key> "<the entries, and what each lacks>"`. The
-owner sends it back to the architect.
+owner sends the "Technical design" work item back to the architect, and the
+merge of the fixed design moves yours back to Todo.
 
 **`swarm/design`** asks for the grooming and the design. Clone
 getcouchy/couchy-design beside your checkout, read its `README.md` and
@@ -641,15 +643,21 @@ prompt says "run your **architect tick** as `<name>`" (with the tool:
 (`swarm/agent/claude-architect-1`) and takes one job at a time: the work item
 it already holds, else the next one the owner labelled `swarm/tech-design`
 that is in Backlog or Todo, nobody holds, and is not `swarm/hands-off`, in a
-shaping tick's order. It reviews, fixes and merges nothing, takes no other
-shaping, and never moves a work item's state. While an item carries the label
+shaping tick's order. It reviews, fixes and merges nothing, and takes no other
+shaping. While an item carries the label
 no tick builds it, and no shaping tick takes it.
+
+The label stays on when the design is written; the work item's state says how
+far it is. Linear moves it to In Progress when the design's pull request opens,
+and `agent.mjs shaped` to Review, so no architect tick takes it again. It is
+Done when the owner merges that pull request: Linear moves it, not the tick. To
+send a design back, the owner moves the work item to Todo.
 
 What it reads, what the technical design holds, and how it hands the work on
 are in [`ARCHITECT.md`](ARCHITECT.md), which only an architect tick needs to
 read. It files no work items: once the owner merges its design, couchy-design's
-hand-off workflow labels the work item `swarm/needs-shaping`, and a shaping tick files the design's proposed
-issue sequence ("Shaping ticks", "A merged technical design").
+hand-off workflow files "Shape: <slug>", labelled `swarm/needs-shaping`, and a
+shaping tick files the design's proposed issue sequence ("Shaping ticks", "A merged technical design").
 [`LIFECYCLE.md`](LIFECYCLE.md) is the whole path a feature takes, from
 the idea to QA, and who checks what along it.
 

@@ -299,7 +299,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   }
   for (const pr of pulls.filter((p) => labelNames(p).includes(HOLD))) labelled.hold.push({ number: pr.number, agent: agentOf(pr) });
 
-  // Merged work waiting for the owner to walk its acceptance criteria.
+  // Merged work waiting for the owner to walk its acceptance criteria, and technical designs to merge.
   for (const item of (await gh.inQA?.()) ?? []) {
     flag('Waiting for your review', `qa:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
   }

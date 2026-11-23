@@ -161,8 +161,10 @@ web-smoke flows the feature adds.
 ## Hand it on
 
 1. **Open one pull request in getcouchy/couchy-design** that adds the
-   technical design, ready for review. Its body is the plan card. Do not label
-   it `swarm/pr` or turn on auto-merge: the owner reads the plan card and
+   technical design, ready for review. Its title ends with the work item's key,
+   `<slug>: technical design (<key>)`: Linear moves the work item to In
+   Progress when the pull request opens and to Done when it merges, and finds
+   it by that key. Its body is the plan card. Do not label it `swarm/pr` or turn on auto-merge: the owner reads the plan card and
    merges, and merging is the approval.
 2. **Finish**, filing no work items:
 
@@ -170,15 +172,17 @@ web-smoke flows the feature adds.
    node ../swarm/agent.mjs shaped <key> "<the plan card, and the design PR>"
    ```
 
-   That comments the summary, swaps `swarm/tech-design` for `swarm/shaped`,
-   and takes your label off. When the owner merges the design,
-   couchy-design's hand-off workflow labels the work item
-   `swarm/needs-shaping`, and a shaping tick files the proposed issue sequence (`PROTOCOL.md`, "Shaping ticks").
+   That comments the summary, moves the work item to Review, and takes
+   your label off. `swarm/tech-design` stays on it for good, and you never move
+   it to Done: that is the merge. When the owner merges the design,
+   couchy-design's hand-off workflow files a work item of its own for a shaping
+   tick, "Shape: <slug>", labelled `swarm/needs-shaping`, and a shaping tick
+   files the proposed issue sequence from it (`PROTOCOL.md`, "Shaping ticks").
 
-**When the work item comes back.** The owner put `swarm/tech-design` back on
-it. What to change is in the comments on the design's pull request since your
-last push, or on the work item when a shaping tick found an entry it could not
-file as written. Push the change to the same pull request and update its plan
+**When the work item comes back.** The owner moved it back to Todo. What to
+change is in the comments on the design's pull request since your
+last push, or on the "Shape: <slug>" work item when a shaping tick found an
+entry it could not file as written. Push the change to the same pull request and update its plan
 card; if that pull request has merged, open a new one that edits the design.
 Then finish as above.
 

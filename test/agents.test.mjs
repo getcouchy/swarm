@@ -1125,6 +1125,11 @@ test('architect: an architect tick takes only swarm/tech-design work; a shaping 
   assert.deepEqual([job.kind, job.issue], ['groom', 31], 'a shaping tick never takes a technical design');
   job = await next(fake({ issues: [issue(31, ['swarm/needs-shaping'], { stage: 'backlog' })] }), architect);
   assert.deepEqual([job.job, job.why], ['none', 'nothing is waiting for a technical design'], 'and an architect shapes nothing else');
+  // A finished one keeps its label, in Review until its design PR merges: nobody takes it.
+  const finished = () => [td(33, { stage: 'qa' })];
+  for (const who of [architect, { me: 'claude-shape-1', role: 'shape' }, { me: 'claude-1' }]) {
+    assert.equal((await next(fake({ issues: finished() }), { ...who, doClaim: false })).job, 'none');
+  }
   // A builder skips a Todo item that waits for its technical design.
   job = await next(fake({ issues: [issue(40, ['swarm/focus', 'swarm/tech-design']), issue(41)] }), { me: 'claude-1', doClaim: false });
   assert.equal(job.issue, 41);
