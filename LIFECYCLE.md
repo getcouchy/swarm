@@ -92,7 +92,8 @@ design, and the architect's design is reviewed by another agent.
 - **Who:** an architect tick ([`ARCHITECT.md`](ARCHITECT.md)), with the spec
   and the codebase open.
 - **Artifact:** `features/<slug>/tech-design.md`, beside the spec, on its own
-  PR in getcouchy/couchy-design.
+  PR in getcouchy/couchy-design. The work item waits in Review until the owner
+  merges it.
 - **It opens with the plan card**, the only part the owner has to read:
 
   | | |
@@ -135,9 +136,10 @@ design, and the architect's design is reviewed by another agent.
 ### 4. Packages: the work, in Linear
 
 - **Who:** a shaping tick (`PROTOCOL.md`, "Shaping ticks", "A merged
-  technical design"), once the owner merges the design: the merge labels its
-  work item `swarm/needs-shaping` (couchy-design's
-  `tech-design-handoff.yml`). Not the architect: its run, on the strongest
+  technical design"), once the owner merges the design: the merge files a work
+  item for it, "Shape: <slug>", labelled `swarm/needs-shaping` (couchy-design's
+  `tech-design-handoff.yml`), and Linear moves the "Technical design" work item
+  to Done, where it keeps `swarm/tech-design`. Not the architect: its run, on the strongest
   model, is spent on the design, and the work items are filed from the
   design the owner approved, so a change asked for on the PR leaves none to
   cancel.
@@ -145,8 +147,8 @@ design, and the architect's design is reviewed by another agent.
   Backlog, in the feature's project, with Linear's "blocked by" set from each
   entry's "Waits on". The shaper copies; it changes no scope, acceptance or
   design. Each contract an entry names is pasted in full: a builder's sandbox
-  may not reach couchy-design, so nothing is left as a link. The "Technical
-  design" work item closes in their favour.
+  may not reach couchy-design, so nothing is left as a link. The "Shape: <slug>"
+  work item closes in their favour.
 - **Gate:** the owner moves the packages to Todo after merging the design.
   That is the approval for work, as it is today.
 
@@ -233,7 +235,7 @@ design, and the architect's design is reviewed by another agent.
 | From | To | When | How |
 | --- | --- | --- | --- |
 | Architect | Design agent and owner | The spec cannot be built as written, or one part costs far more than the rest | A question on the spec's PR or work item, with options and what each costs |
-| Shaper | Architect | An entry of the issue sequence can't be filed as written | A comment on the design's work item, and Needs Human; the owner puts `swarm/tech-design` back |
+| Shaper | Architect | An entry of the issue sequence can't be filed as written | A comment on the "Shape: <slug>" work item, and Needs Human; the owner moves the "Technical design" one back to Todo |
 | Builder | Architect | The design section is wrong | Pause the work item with the question |
 | Sweep | Architect | A work item passes its expected pull request count | The stop, and a line on the desk |
 | Owner (QA) | Builder | A check fails | Back to Todo with a comment |

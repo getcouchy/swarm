@@ -42,7 +42,7 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
     cycle: i.sprint ? { id: 'cy1', isActive: true } : i.cycleId ? { id: i.cycleId, isActive: false } : null,
     project: i.projectId ? { id: i.projectId } : null,
   });
-  const rel = (i) => ({ identifier: `COU-${i.number}`, state: { type: state(i.stateId).type, name: state(i.stateId).name } });
+  const rel = (i) => ({ identifier: `COU-${i.number}`, state: { type: state(i.stateId).type, name: state(i.stateId).name }, labels: { nodes: i.labelIds.map((id) => labels.find((l) => l.id === id)) } });
   const page = (nodes) => ({ nodes, pageInfo: { hasNextPage: false, endCursor: null } });
   const ok = (data, headers = {}) => ({
     ok: true, status: 200, json: async () => ({ data }), text: async () => '', headers: { get: (h) => headers[h.toLowerCase()] ?? null },
@@ -367,6 +367,21 @@ test('Review state: no agent takes an item there and it blocks nothing; merges m
 
   const noQa = t({ repo: 'getcouchy/couchy' }, client(fakeLinear({ issues: [item(1)] })));
   assert.equal(await noQa.setStage('COU-1', 'qa'), 'completed', 'a team with no Review state sends it to Done');
+});
+
+test('Review state: a technical design there has not merged, so it still blocks; no tick takes it', async () => {
+  const fake = fakeLinear({
+    states: [...STATES, QA_STATE],
+    labels: [{ id: 'l-td', name: 'tech-design', parent: { name: 'swarm' } }],
+    issues: [item(1, { stateId: 's-qa', labelIds: ['l-td'] }), item(2, { description: 'Blocked by COU-1.' }), item(3)],
+    relations: [{ from: 'i1', to: 'i3', type: 'blocks' }],
+  });
+  const items = t({ repo: 'getcouchy/couchy' }, client(fake));
+  const [design, named, related] = await items.openIssues();
+  assert.deepEqual([design.number, design.stage], ['COU-1', 'qa']);
+  assert.deepEqual([await items.blockers(named), await items.blockers(related)], [['COU-1'], ['COU-1']]);
+  assert.deepEqual((await items.inQA()).map((i) => i.number), ['COU-1'], 'the desk lists it for the owner');
+  assert.match(whyNotClaimable(design, {}), /not ready: in qa/);
 });
 
 test('desk: the markers live in one comment the sweep edits, so the next run remembers what it said', async () => {
