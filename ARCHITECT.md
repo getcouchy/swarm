@@ -3,7 +3,7 @@
 An architect tick turns a merged spec into a **technical design**: how the
 feature is built in this codebase, which shared pieces come first, and the
 sequence of work items the builders take. It builds nothing, reviews nothing,
-and files no work items: once the owner merges the design, a shaping tick
+and files no work items: once the owner merges the design, a task-breakdown tick
 files its proposed issue sequence as written. Your run is spent on the
 thinking; the copying is done on a cheaper model, from the design the owner
 approved.
@@ -26,8 +26,8 @@ Your prompt says "run your **architect tick** as `<name>`". Set
 `agent.mjs next` gives you one job at a time: the work item you already hold,
 else the next one the owner labelled `swarm/tech-design` that is in Backlog or
 Todo, that nobody holds and that is not `swarm/hands-off`. Work in focus comes
-first, then priority. A shaping tick never takes these, and you take nothing
-else: no `swarm/needs-shaping`, no pull request, no build.
+first, then priority. A task-breakdown tick never takes these, and you take nothing
+else: no `swarm/task-breakdown`, no pull request, no build.
 
 One technical design per run. Your time limit is the run's timeout, not
 `PROTOCOL.md`'s 20 and 45 minutes; keep ten minutes to end cleanly. If the
@@ -113,7 +113,7 @@ named, and what already exists that is reused.
 
 **Proposed issue sequence.** The cut, in build order: one entry per package,
 and each package one pull request of a day or less; one that is bigger is cut
-again here, not left for later. A shaping tick on a smaller model files each
+again here, not left for later. A task-breakdown tick on a smaller model files each
 entry as a work item, and decides nothing: everything a builder needs is in
 the entry, or in a contract it names. Each entry is in this form:
 
@@ -169,19 +169,19 @@ web-smoke flows the feature adds.
 2. **Finish**, filing no work items:
 
    ```bash
-   node ../swarm/agent.mjs shaped <key> "<the plan card, and the design PR>"
+   node ../swarm/agent.mjs submit <key> "<the plan card, and the design PR>"
    ```
 
    That comments the summary, moves the work item to Review, and takes
    your label off. `swarm/tech-design` stays on it for good, and you never move
    it to Done: that is the merge. When the owner merges the design,
-   couchy-design's hand-off workflow files a work item of its own for a shaping
-   tick, "Shape: <slug>", labelled `swarm/needs-shaping`, and a shaping tick
-   files the proposed issue sequence from it (`PROTOCOL.md`, "Shaping ticks").
+   couchy-design's hand-off workflow files a work item of its own for a task-breakdown
+   tick, "Task breakdown: <slug>", labelled `swarm/task-breakdown`, and a task-breakdown tick
+   files the proposed issue sequence from it (`PROTOCOL.md`, "Task-breakdown ticks").
 
 **When the work item comes back.** The owner moved it back to Todo. What to
 change is in the comments on the design's pull request since your
-last push, or on the "Shape: <slug>" work item when a shaping tick found an
+last push, or on the "Task breakdown: <slug>" work item when a task-breakdown tick found an
 entry it could not file as written. Push the change to the same pull request and update its plan
 card; if that pull request has merged, open a new one that edits the design.
 Then finish as above.
