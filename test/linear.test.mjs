@@ -390,6 +390,27 @@ test('desk: the markers live in one comment the sweep edits, so the next run rem
   assert.deepEqual(readLinked(posted()[0]), []);
 });
 
+test('desk: the sweep of a repository other than the team\'s first makes the desk in that repository, where its next run finds it', async () => {
+  const fake = fakeLinear({ issues: [] });
+  const agent = () => t({ repo: 'getcouchy/couchy-agent' }, client(fake, { repo: 'getcouchy/couchy-agent', defaultRepo: 'getcouchy/couchy' }));
+  await writeDesk(agent(), { desk: null, overdue: [], fixed: [], now: Date.parse('2026-11-16T12:00:00Z') });
+  const next = agent();
+  assert.equal((await findDesk(next, await next.openIssues()))?.title, 'Agent desk');
+  const couchy = t({ repo: 'getcouchy/couchy' }, client(fake));
+  assert.equal(await findDesk(couchy, await couchy.openIssues()), null, 'not getcouchy/couchy\'s desk');
+});
+
+test('a work item made for a repository other than the team\'s first carries that repository\'s label', async () => {
+  const fake = fakeLinear({ issues: [], labels: [{ id: 'l-runner', name: 'repo/agent-runner' }] });
+  const agent = t({ repo: 'getcouchy/couchy-agent' }, client(fake, { repo: 'getcouchy/couchy-agent', defaultRepo: 'getcouchy/couchy' }));
+  const made = await agent.createIssue('Agent work', 'Body.', ['swarm/shaped']);
+  assert.deepEqual([made.repo, labelNamesOf(made)], ['getcouchy/couchy-agent', ['swarm/shaped', 'repo/couchy-agent']]);
+  const named = await agent.createIssue('Runner work', 'Body.', ['repo/agent-runner']);
+  assert.deepEqual([named.repo, labelNamesOf(named)], ['getcouchy/agent-runner', ['repo/agent-runner']], 'a repository named by the caller stands');
+  const couchy = await t({ repo: 'getcouchy/couchy' }, client(fake)).createIssue('Couchy work', 'Body.');
+  assert.deepEqual([couchy.repo, labelNamesOf(couchy)], ['getcouchy/couchy', []], 'the team\'s first repository needs no label');
+});
+
 test('events: label history reads as GitHub\'s issue events', async () => {
   const fake = fakeLinear({
     issues: [item(1)],
