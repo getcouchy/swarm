@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, openParents, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, shapeKind, whyNotClaimable, whyNotShapeable,
+  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, openParents, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, requestKind, whyNotClaimable, whyNotBreakdown,
 } from '../lib/rules.mjs';
 import { client } from '../lib/github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from '../sweep.mjs';
@@ -1071,63 +1071,64 @@ test('needs-human and hold: the comment, then the label, then the line the runne
 
   await assert.rejects(run('hold', ['3'], { clients: [fake()], me: 'codex' }), UsageError, 'what it waits for is required');
   await assert.rejects(run('needs-human', ['nope', 'Which?'], { clients: [fake()], me: 'codex' }), UsageError);
+  await assert.rejects(run('shaped', [], { clients: [fake()], me: 'codex' }), /submit needs a work item's key/, 'the old name of submit still runs it');
 });
 
-test('shaping: a shaping tick takes what the owner labelled, in focus first, then by priority; builders leave it alone', async () => {
-  const groom = (n, extra = {}) => issue(n, ['swarm/needs-shaping'], { stage: 'backlog', ...extra });
-  assert.equal(shapeKind(issue(1, ['swarm/needs-shaping', 'swarm/design'])), 'design', 'design grooms too');
-  assert.equal(shapeKind(issue(1)), null);
-  assert.equal(whyNotShapeable(groom(1)), null);
-  assert.equal(whyNotShapeable(groom(1, { stage: 'unstarted' })), null, 'Todo work can be shaped');
-  assert.match(whyNotShapeable(groom(1, { stage: 'started' })), /Backlog and Todo/);
-  assert.match(whyNotShapeable(issue(1, ['swarm/needs-shaping', 'swarm/agent/claude-1'], { stage: 'backlog' })), /held by claude-1/);
-  assert.match(whyNotShapeable(issue(1, ['swarm/design', 'swarm/needs-human'], { stage: 'backlog' })), /needs-human/);
-  assert.match(whyNotClaimable(issue(1, ['swarm/focus', 'swarm/needs-shaping']), {}), /waiting for shaping \(swarm\/needs-shaping\)/);
+test('task breakdown: a task-breakdown tick takes what the owner labelled, in focus first, then by priority; builders leave it alone', async () => {
+  const ask = (n, extra = {}) => issue(n, ['swarm/task-breakdown'], { stage: 'backlog', ...extra });
+  assert.equal(requestKind(issue(1, ['swarm/task-breakdown', 'swarm/design'])), 'design', 'design breaks it down too');
+  assert.equal(requestKind(issue(1)), null);
+  assert.equal(whyNotBreakdown(ask(1)), null);
+  assert.equal(whyNotBreakdown(ask(1, { stage: 'unstarted' })), null, 'Todo work can be broken down');
+  assert.match(whyNotBreakdown(ask(1, { stage: 'started' })), /Backlog and Todo/);
+  assert.match(whyNotBreakdown(issue(1, ['swarm/task-breakdown', 'swarm/agent/claude-1'], { stage: 'backlog' })), /held by claude-1/);
+  assert.match(whyNotBreakdown(issue(1, ['swarm/design', 'swarm/needs-human'], { stage: 'backlog' })), /needs-human/);
+  assert.match(whyNotClaimable(issue(1, ['swarm/focus', 'swarm/task-breakdown']), {}), /waiting for swarm\/task-breakdown/);
 
-  const shaper = { me: 'claude-shape-1', role: 'shape' };
+  const breakdown = { me: 'claude-task-breakdown-1', role: 'task-breakdown' };
   const queue = () => [
-    groom(10, { priority: 'urgent' }),
+    ask(10, { priority: 'urgent' }),
     issue(11, ['swarm/design'], { stage: 'backlog', priority: 'low' }),
-    issue(12, ['swarm/needs-shaping', 'swarm/focus'], { stage: 'backlog', priority: 'none' }),
-    issue(13), // ready to build, but a shaping tick builds nothing
+    issue(12, ['swarm/task-breakdown', 'swarm/focus'], { stage: 'backlog', priority: 'none' }),
+    issue(13), // ready to build, but a task-breakdown tick builds nothing
   ];
-  let job = await next(fake({ issues: queue() }), { ...shaper, doClaim: false });
-  assert.deepEqual([job.job, job.kind, job.issue, job.focus], ['shape', 'groom', 12, 12], 'in focus first, whatever its priority');
+  let job = await next(fake({ issues: queue() }), { ...breakdown, doClaim: false });
+  assert.deepEqual([job.job, job.kind, job.issue, job.focus], ['task-breakdown', 'task-breakdown', 12, 12], 'in focus first, whatever its priority');
   const gh = fake({ issues: queue().filter((i) => i.number !== 12) });
-  job = await nextAcross([gh], shaper);
-  assert.deepEqual([job.job, job.issue, job.claimed], ['shape', 10, true], 'then priority');
-  assert.deepEqual(gh.log, ['add 10 swarm/agent/claude-shape-1']);
-  job = await next(gh, shaper);
+  job = await nextAcross([gh], breakdown);
+  assert.deepEqual([job.job, job.issue, job.claimed], ['task-breakdown', 10, true], 'then priority');
+  assert.deepEqual(gh.log, ['add 10 swarm/agent/claude-task-breakdown-1']);
+  job = await next(gh, breakdown);
   assert.deepEqual([job.issue, job.resumed], [10, true], 'its own comes back first');
-  job = await next(fake({ issues: [issue(13), issue(14, ['swarm/needs-shaping'], { stage: 'started' })] }), shaper);
-  assert.deepEqual([job.job, job.why, job.skipped], ['none', 'nothing is waiting for shaping', [{ issue: 14, why: 'in started: shaping is for Backlog and Todo' }]]);
-  // A builder skips a Todo item that is waiting for shaping.
+  job = await next(fake({ issues: [issue(13), issue(14, ['swarm/task-breakdown'], { stage: 'started' })] }), breakdown);
+  assert.deepEqual([job.job, job.why, job.skipped], ['none', 'nothing is waiting for task breakdown', [{ issue: 14, why: 'in started: task breakdown is for Backlog and Todo' }]]);
+  // A builder skips a Todo item that is waiting for task breakdown.
   job = await next(fake({ issues: [issue(20, ['swarm/focus', 'swarm/design']), issue(21)] }), { me: 'claude-1', doClaim: false });
   assert.equal(job.issue, 21);
 });
 
-test('architect: an architect tick takes only swarm/tech-design work; a shaping tick and a builder leave it alone', async () => {
+test('architect: an architect tick takes only swarm/tech-design work; a task-breakdown tick and a builder leave it alone', async () => {
   const td = (n, extra = {}) => issue(n, ['swarm/tech-design'], { stage: 'backlog', ...extra });
-  assert.equal(shapeKind(td(1)), 'tech-design');
-  assert.equal(shapeKind(issue(1, ['swarm/tech-design', 'swarm/needs-shaping'])), 'tech-design', 'the technical design comes before the shaping');
-  assert.equal(whyNotShapeable(td(1)), null);
-  assert.match(whyNotClaimable(issue(1, ['swarm/tech-design']), {}), /waiting for shaping \(swarm\/tech-design\)/);
+  assert.equal(requestKind(td(1)), 'tech-design');
+  assert.equal(requestKind(issue(1, ['swarm/tech-design', 'swarm/task-breakdown'])), 'tech-design', 'the technical design comes before the breakdown');
+  assert.equal(whyNotBreakdown(td(1)), null);
+  assert.match(whyNotClaimable(issue(1, ['swarm/tech-design']), {}), /waiting for swarm\/tech-design/);
 
   const architect = { me: 'claude-architect-1', role: 'architect' };
-  const queue = () => [td(30, { priority: 'low' }), issue(31, ['swarm/needs-shaping'], { stage: 'backlog', priority: 'urgent' }), issue(32)];
+  const queue = () => [td(30, { priority: 'low' }), issue(31, ['swarm/task-breakdown'], { stage: 'backlog', priority: 'urgent' }), issue(32)];
   let job = await next(fake({ issues: queue() }), { ...architect, doClaim: false });
-  assert.deepEqual([job.job, job.kind, job.issue], ['shape', 'tech-design', 30], 'its own kind, whatever else is more urgent');
+  assert.deepEqual([job.job, job.kind, job.issue], ['task-breakdown', 'tech-design', 30], 'its own kind, whatever else is more urgent');
   const gh = fake({ issues: queue() });
   job = await next(gh, architect);
   assert.deepEqual([job.issue, job.claimed], [30, true]);
   assert.deepEqual(gh.log, ['add 30 swarm/agent/claude-architect-1']);
-  job = await next(fake({ issues: queue() }), { me: 'claude-shape-1', role: 'shape', doClaim: false });
-  assert.deepEqual([job.kind, job.issue], ['groom', 31], 'a shaping tick never takes a technical design');
-  job = await next(fake({ issues: [issue(31, ['swarm/needs-shaping'], { stage: 'backlog' })] }), architect);
-  assert.deepEqual([job.job, job.why], ['none', 'nothing is waiting for a technical design'], 'and an architect shapes nothing else');
+  job = await next(fake({ issues: queue() }), { me: 'claude-task-breakdown-1', role: 'task-breakdown', doClaim: false });
+  assert.deepEqual([job.kind, job.issue], ['task-breakdown', 31], 'a task-breakdown tick never takes a technical design');
+  job = await next(fake({ issues: [issue(31, ['swarm/task-breakdown'], { stage: 'backlog' })] }), architect);
+  assert.deepEqual([job.job, job.why], ['none', 'nothing is waiting for a technical design'], 'and an architect takes nothing else');
   // A finished one keeps its label, in Review until its design PR merges: nobody takes it.
   const finished = () => [td(33, { stage: 'qa' })];
-  for (const who of [architect, { me: 'claude-shape-1', role: 'shape' }, { me: 'claude-1' }]) {
+  for (const who of [architect, { me: 'claude-task-breakdown-1', role: 'task-breakdown' }, { me: 'claude-1' }]) {
     assert.equal((await next(fake({ issues: finished() }), { ...who, doClaim: false })).job, 'none');
   }
   // A builder skips a Todo item that waits for its technical design.
@@ -1135,20 +1136,23 @@ test('architect: an architect tick takes only swarm/tech-design work; a shaping 
   assert.equal(job.issue, 41);
 });
 
-test('sweep: a shaping lock on Backlog work is fine; the desk lists work waiting for shaping and shaped work waiting for the owner', async () => {
+test('sweep: a task-breakdown lock on Backlog work is fine; the desk lists work waiting for task breakdown and broken-down work waiting for the owner', async () => {
   const issues = [
-    issue(1, ['swarm/needs-shaping', 'swarm/agent/claude-shape-1'], { stage: 'backlog', updated_at: ago(1) }),
+    issue(1, ['swarm/task-breakdown', 'swarm/agent/claude-task-breakdown-1'], { stage: 'backlog', updated_at: ago(1) }),
     issue(2, ['swarm/design'], { stage: 'backlog', updated_at: ago(6) }),
-    issue(3, ['swarm/needs-shaping'], { stage: 'backlog', updated_at: ago(1) }), // not waiting long yet
-    issue(4, ['swarm/shaped'], { stage: 'backlog' }),
-    issue(5, ['swarm/shaped'], { stage: 'unstarted' }), // approved: in Todo
+    issue(3, ['swarm/task-breakdown'], { stage: 'backlog', updated_at: ago(1) }), // not waiting long yet
+    issue(4, ['swarm/needs-approval'], { stage: 'backlog' }),
+    issue(5, ['swarm/needs-approval'], { stage: 'unstarted' }), // approved: in Todo
     issue(6, ['couchy-ux/approved', 'swarm/agent/claude-2'], { stage: 'backlog', updated_at: ago(1) }),
   ];
   const lockedAt = (name) => [{ event: 'labeled', label: { name }, created_at: ago(0.5) }];
-  const { overdue } = await sweep(fake({ issues, events: { 1: lockedAt('swarm/agent/claude-shape-1'), 6: lockedAt('swarm/agent/claude-2') } }), { now: NOW, limits: LIMITS });
+  issues.push(issue(7, ['swarm/needs-approval'], { stage: 'needs-human' }));
+  const gh = fake({ issues, closed: [issue(8, ['swarm/needs-approval'], { state: 'closed', stage: 'completed' })], events: { 1: lockedAt('swarm/agent/claude-task-breakdown-1'), 6: lockedAt('swarm/agent/claude-2') } });
+  const { overdue } = await sweep(gh, { now: NOW, limits: LIMITS });
+  assert.deepEqual(gh.log.filter((l) => l.includes('needs-approval')), ['remove 5 swarm/needs-approval', 'remove 8 swarm/needs-approval'], 'out of Backlog is approved; a question to the owner is not');
   const keys = overdue.map((o) => o.key);
   assert.ok(!keys.includes('unapproved:1'));
   assert.ok(keys.includes('unapproved:6'), 'a builder holding Backlog work still is');
-  assert.deepEqual(overdue.filter((o) => o.section === 'Waiting for shaping').map((o) => o.line), ['#2 Issue 2 (design)']);
-  assert.deepEqual(overdue.filter((o) => o.section === 'Shaped, waiting for you').map((o) => o.line), ['#4 Issue 4']);
+  assert.deepEqual(overdue.filter((o) => o.section === 'Waiting for task breakdown').map((o) => o.line), ['#2 Issue 2 (design)']);
+  assert.deepEqual(overdue.filter((o) => o.section === 'Waiting for your approval').map((o) => o.line), ['#4 Issue 4']);
 });

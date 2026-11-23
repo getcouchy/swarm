@@ -87,8 +87,8 @@ The first of these that holds:
 | `merge` | Pull requests not set to merge |
 | `human` | Needs you |
 | `qa` | Waiting for your review |
-| `shape` | Waiting for shaping |
-| `shaped` | Shaped, waiting for you |
+| `task-breakdown` | Waiting for task breakdown |
+| `needs-approval` | Waiting for your approval |
 | `quiet` | Agents not ticking; `number` is empty and `agent` names the agent |
 
 ### The two counters

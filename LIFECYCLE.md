@@ -12,10 +12,10 @@ for the new parts to be true.
 ## The path
 
 ```
- owner + design agent        architect            shaper         builders, reviewers        owner
+ owner + design agent        architect         task breakdown    builders, reviewers        owner
 ┌──────────┐  ┌────────┐  ┌──────────────┐  ┌────────────┐  ┌───────────┐  ┌──────────────┐  ┌────┐
-│ 1 Riff   │→ │ 2 Spec │→ │ 3 Technical  │→ │ 4 Packages │→ │ 5 Shape   │→ │ 6 Build      │→ │ 8  │
-│          │  │        │  │   design     │  │            │  │           │  │ 7 Review,    │  │ QA │
+│ 1 Riff   │→ │ 2 Spec │→ │ 3 Technical  │→ │ 4 Packages │→ │ 5 Task    │→ │ 6 Build      │→ │ 8  │
+│          │  │        │  │   design     │  │            │  │  breakdown│  │ 7 Review,    │  │ QA │
 └──────────┘  └────────┘  └──────────────┘  └────────────┘  └───────────┘  │   merge      │  └────┘
    go / smaller  spec PR     design PR with     Linear          work items  └──────────────┘
    / no          merged      plan card merged   project         in Todo        PRs merged
@@ -33,7 +33,7 @@ card, and QA. Nothing else waits on the owner unless an agent hits a real fork
 | **Owner** | Whether to build it, what it is for, the plan's size, whether it shipped right, real forks | Reviews code or picks a pattern | The spec, the plan card, the weekly digest | Merges, QA comments, answers |
 | **Design agent** | What the person sees and does: screens, states, wording, on the phone and at desk width | Says how to build it | couchy-design, the design system, the live app | `spec.md`, wireframes |
 | **Architect** | How it is built: which patterns, what is shared, the order, the cut into packages | Changes what the person sees; reviews routine PRs; sets priority | The spec, the code, the repository's rules, every stream in flight | `tech-design.md` and its proposed issue sequence; later, rules and their lint checks **(new)** |
-| **Shaper** | How a merged design's issue sequence, and work that did not come through the architect, become work items an agent can build without asking | Redesigns; builds | The work item, the spec, the technical design | Work items (`PROTOCOL.md`, "Shaping ticks") |
+| **Task-breakdown agent** | How a merged design's issue sequence, and work that did not come through the architect, become work items an agent can build without asking | Redesigns; builds | The work item, the spec, the technical design | Work items (`PROTOCOL.md`, "Task-breakdown ticks") |
 | **Builder** | Everything inside one work item | Redesigns: a wrong design goes back to the architect | The work item, the repository's rules | Pull requests |
 | **Reviewer** | `ok` or `changes` on one pull request | Reviews a PR it wrote in the same session | The PR, its work item, the rules, the item's other PRs **(new)** | A verdict |
 | **CI and the sweep** | Nothing: they check what is written down | | | Statuses, the desk, metrics |
@@ -120,7 +120,7 @@ design, and the architect's design is reviewed by another agent.
     written as the work item it becomes: title, labels, what it waits on,
     the contracts it uses, Scope, Not in this item, Acceptance (the spec's
     checks, word for word), Design, Fan-out (and the command that counted
-    it), Verify. Written so a shaper on a smaller model files it without
+    it), Verify. Written so a task-breakdown tick on a smaller model files it without
     deciding anything.
   - **Tests.** What is tested on the model, what on a view, which simulator
     and web-smoke flows.
@@ -135,9 +135,9 @@ design, and the architect's design is reviewed by another agent.
 
 ### 4. Packages: the work, in Linear
 
-- **Who:** a shaping tick (`PROTOCOL.md`, "Shaping ticks", "A merged
+- **Who:** a task-breakdown tick (`PROTOCOL.md`, "Task-breakdown ticks", "A merged
   technical design"), once the owner merges the design: the merge files a work
-  item for it, "Shape: <slug>", labelled `swarm/needs-shaping` (couchy-design's
+  item for it, "Task breakdown: <slug>", labelled `swarm/task-breakdown` (couchy-design's
   `tech-design-handoff.yml`), and Linear moves the "Technical design" work item
   to Done, where it keeps `swarm/tech-design`. Not the architect: its run, on the strongest
   model, is spent on the design, and the work items are filed from the
@@ -145,23 +145,23 @@ design, and the architect's design is reviewed by another agent.
   cancel.
 - **Artifact:** one work item per entry of the proposed issue sequence, in
   Backlog, in the feature's project, with Linear's "blocked by" set from each
-  entry's "Waits on". The shaper copies; it changes no scope, acceptance or
+  entry's "Waits on". The tick copies; it changes no scope, acceptance or
   design. Each contract an entry names is pasted in full: a builder's sandbox
-  may not reach couchy-design, so nothing is left as a link. The "Shape: <slug>"
-  work item closes in their favour.
+  may not reach couchy-design, so nothing is left as a link. The "Task breakdown: <slug>"
+  work item is then Done, and keeps `swarm/task-breakdown`.
 - **Gate:** the owner moves the packages to Todo after merging the design.
   That is the approval for work, as it is today.
 
-### 5. Shape: for work that did not come through the architect
+### 5. Task breakdown: for work that did not come through the architect
 
-- **Who:** a shaping tick (`PROTOCOL.md`, "Shaping ticks").
+- **Who:** a task-breakdown tick (`PROTOCOL.md`, "Task-breakdown ticks").
 - **When:** a bug, a one-screen change, or a work item filed by hand that the
-  owner labels `swarm/needs-shaping`. A feature's packages arrive shaped from
+  owner labels `swarm/task-breakdown`. A feature's packages arrive broken down from
   stage 4 and skip this.
 - **Artifact:** the work item rewritten as Scope, Not in this item,
   Acceptance, Verify, and two sections more **(new)**: `### Design` (the
   repository's rules that apply, by number) and `Fan-out:` (the files it
-  touches, and the command). A shaper that finds the same edit landing in
+  touches, and the command). A tick that finds the same edit landing in
   more than three files stops and asks for a technical design.
 - **Gate:** the owner moves it to Todo.
 
@@ -173,7 +173,7 @@ design, and the architect's design is reviewed by another agent.
   repository's `CLAUDE.md` asks for, and "Decisions made" in the body.
 - **A builder follows the design section.** If it is wrong or missing
   something, the builder does not improvise a different structure: it pauses
-  the work item with the question (`swarm/needs-shaping`, and a comment), and
+  the work item with the question (`swarm/task-breakdown`, and a comment), and
   the architect answers **(new)**.
 
 ### 7. Review and merge
@@ -235,14 +235,14 @@ design, and the architect's design is reviewed by another agent.
 | From | To | When | How |
 | --- | --- | --- | --- |
 | Architect | Design agent and owner | The spec cannot be built as written, or one part costs far more than the rest | A question on the spec's PR or work item, with options and what each costs |
-| Shaper | Architect | An entry of the issue sequence can't be filed as written | A comment on the "Shape: <slug>" work item, and Needs Human; the owner moves the "Technical design" one back to Todo |
+| Task-breakdown agent | Architect | An entry of the issue sequence can't be filed as written | A comment on the "Task breakdown: <slug>" work item, and Needs Human; the owner moves the "Technical design" one back to Todo |
 | Builder | Architect | The design section is wrong | Pause the work item with the question |
 | Sweep | Architect | A work item passes its expected pull request count | The stop, and a line on the desk |
 | Owner (QA) | Builder | A check fails | Back to Todo with a comment |
 | Audit | Architect and owner | A new kind of smell | The report; the architect turns what the owner accepts into rules |
 
 Nothing goes back by an agent quietly doing another role's job. A builder that
-redesigns, a shaper that changes scope, or an architect that changes a screen
+redesigns, a task-breakdown tick that changes scope, or an architect that changes a screen
 has skipped the check that role exists for.
 
 ## What the owner reads, and when
@@ -273,7 +273,7 @@ In the order that makes each stage true:
    `swarm/tech-design`, `ARCHITECT.md`); it needs a tick scheduled for it.
 5. The tools it needs: the pull requests of each work item, the files open
    pull requests share, the suppression and budget counts with their trend.
-6. The shaping template's `### Design` and `Fan-out:`, and `shaped` refusing
+6. The task-breakdown template's `### Design` and `Fan-out:`, and `submit` refusing
    a description without them.
 7. The reviewer's rule check and the work item's pull request count in its job.
 8. The stop when a work item passes its expected count.

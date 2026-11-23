@@ -25,8 +25,8 @@
 //                                                hold a PR's merge: the comment, then swarm/hold
 //   node ../swarm/agent.mjs show COUCHYUX-12      a work item as Markdown, with its comments and attachments
 //   node ../swarm/agent.mjs images COUCHYUX-12    download its description's images and its attachments to read
-// A shaping tick also has describe, create, blocked-by, labels, attach and
-// shaped (shape.mjs; PROTOCOL.md, "Shaping ticks").
+// A task-breakdown tick also has describe, create, blocked-by, labels, attach and
+// submit (breakdown.mjs; PROTOCOL.md, "Task-breakdown ticks").
 //
 // Work items are in the tracker (workitems.mjs) and pull requests on GitHub (github.mjs).
 // A tick covers every repository in AGENT_REPOS (default: GITHUB_REPOSITORY and
@@ -37,7 +37,7 @@
 // AGENT_NAME is this agent's name (codex, grok, claude-2…), which makes its
 // label swarm/agent/<name>; AGENT_CAN lists what its sandbox has, matching
 // swarm/needs/* labels ("ios-sim,design"); AGENT_ROLE=focus runs a builder tick
-// (PROTOCOL.md, "Builder ticks"), AGENT_ROLE=shape a shaping tick ("Shaping ticks"),
+// (PROTOCOL.md, "Builder ticks"), AGENT_ROLE=task-breakdown a task-breakdown tick ("Task-breakdown ticks"),
 // AGENT_ROLE=architect an architect tick (ARCHITECT.md).
 // Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy), and
 // the work item tracker's credentials (Linear's: linear.mjs).
@@ -61,7 +61,8 @@ if (!isValidProvider(me)) {
   process.exit(2);
 }
 const can = new Set((process.env.AGENT_CAN ?? '').split(',').map((s) => s.trim()).filter(Boolean));
-const role = ['focus', 'shape', 'architect'].includes(process.env.AGENT_ROLE) ? process.env.AGENT_ROLE : 'all';
+const asked = process.env.AGENT_ROLE === 'shape' ? 'task-breakdown' : process.env.AGENT_ROLE; // the old role still works
+const role = ['focus', 'task-breakdown', 'architect'].includes(asked) ? asked : 'all';
 const ceiling = Number(process.env.AGENT_TICK_CEILING || 45);
 // How the agent ran this script, for the `then` commands it prints; a copy run
 // from origin/main is handed the original's path.

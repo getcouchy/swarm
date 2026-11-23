@@ -418,8 +418,8 @@ test('desk: the sweep of a repository other than the team\'s first makes the des
 test('a work item made for a repository other than the team\'s first carries that repository\'s label', async () => {
   const fake = fakeLinear({ issues: [], labels: [{ id: 'l-runner', name: 'repo/agent-runner' }] });
   const agent = t({ repo: 'getcouchy/couchy-agent' }, client(fake, { repo: 'getcouchy/couchy-agent', defaultRepo: 'getcouchy/couchy' }));
-  const made = await agent.createIssue('Agent work', 'Body.', ['swarm/shaped']);
-  assert.deepEqual([made.repo, labelNamesOf(made)], ['getcouchy/couchy-agent', ['swarm/shaped', 'repo/couchy-agent']]);
+  const made = await agent.createIssue('Agent work', 'Body.', ['swarm/needs-approval']);
+  assert.deepEqual([made.repo, labelNamesOf(made)], ['getcouchy/couchy-agent', ['swarm/needs-approval', 'repo/couchy-agent']]);
   const named = await agent.createIssue('Runner work', 'Body.', ['repo/agent-runner']);
   assert.deepEqual([named.repo, labelNamesOf(named)], ['getcouchy/agent-runner', ['repo/agent-runner']], 'a repository named by the caller stands');
   const couchy = await t({ repo: 'getcouchy/couchy' }, client(fake)).createIssue('Couchy work', 'Body.');
@@ -476,7 +476,7 @@ test('descriptions are Markdown as Linear stores them: blockers read straight fr
   assert.deepEqual(bodyBlockers('### Scope\n\nBlocked by COU-3 & #5.').map((b) => b.key ?? b.number), ['COU-3', 5]);
 });
 
-test('shaping: child items are made in Backlog under their parent; relations; files upload, then attach', async () => {
+test('task breakdown: child items are made in Backlog under their parent; relations; files upload, then attach', async () => {
   const fake = fakeLinear({ issues: [item(1, { labelIds: ['lg'] }), item(2)], labels: [{ id: 'lg', name: 'groom', parent: { id: 'g-swarm', name: 'swarm' } }] });
   const puts = [];
   const fetchImpl = async (url, opts = {}) => {
@@ -487,10 +487,10 @@ test('shaping: child items are made in Backlog under their parent; relations; fi
     return fake.fetchImpl(url, opts);
   };
   const items = t({ repo: 'getcouchy/couchy' }, client(fake, { fetchImpl }));
-  assert.equal(await claim(items, 'COU-1', 'claude-shape-1'), true);
-  assert.equal(fake.issues[0].stateId, 's-todo', 'shaping is not building');
+  assert.equal(await claim(items, 'COU-1', 'claude-task-breakdown-1'), true);
+  assert.equal(fake.issues[0].stateId, 's-todo', 'breaking down is not building');
 
-  const child = await items.createIssue('Slice one', '### Scope\n\n- this', ['swarm/shaped'], { parent: 'COUCHYUX-1', priority: 'high' });
+  const child = await items.createIssue('Slice one', '### Scope\n\n- this', ['swarm/needs-approval'], { parent: 'COUCHYUX-1', priority: 'high' });
   const made = fake.issues.at(-1);
   assert.deepEqual([made.stateId, made.parentId, made.priority, made.description], ['s-backlog', 'i1', 2, '### Scope\n\n- this']);
   await items.relate(child.key, 'blocked_by', ['COU-2']);
@@ -504,7 +504,7 @@ test('shaping: child items are made in Backlog under their parent; relations; fi
   assert.equal((await items.attachments('COU-1')).length, 1, 'links are not uploads');
 });
 
-test('shaping: a slice goes in the project and the cycle of the item it came from, with no parent', async () => {
+test('task breakdown: a slice goes in the project and the cycle of the item it came from, with no parent', async () => {
   const fake = fakeLinear({
     issues: [item(1, { projectId: 'p1', sprint: true, labelIds: ['lw', 'la'] }), item(2, { cycleId: 'cy0' })],
     labels: [{ id: 'lw', name: 'web', parent: { id: 'g-platform', name: 'platform' } }, { id: 'la', name: 'app', parent: { id: 'g-area', name: 'area' }, retiredAt: '2026-11-20T00:00:00Z' }],
@@ -593,7 +593,7 @@ const GROUPED = [
   { id: 'g-platform', name: 'platform', isGroup: true, groupType: 'singleSelect' },
   { id: 'l-claude-1', name: 'claude-1', parent: { id: 'g-agent', name: 'swarm-agent' } },
   { id: 'l-human', name: 'needs-human', parent: { id: 'g-swarm', name: 'swarm' } },
-  { id: 'l-shaping', name: 'needs-shaping', parent: { id: 'g-swarm', name: 'swarm' } },
+  { id: 'l-approval', name: 'needs-approval', parent: { id: 'g-swarm', name: 'swarm' } },
   { id: 'l-sim', name: 'needs-ios-sim', parent: { id: 'g-swarm', name: 'swarm' } },
   { id: 'l-blocked', name: 'blocked', parent: { id: 'g-swarm', name: 'swarm' } },
   { id: 'l-blocked-flat', name: 'swarm/blocked' },
@@ -605,10 +605,10 @@ const grouped = (more = {}) => fakeLinear({ labels: GROUPED.map((l) => ({ ...l }
 
 test('label groups: a child reads as the protocol names it, and goes back to its group', () => {
   const as = (name, group) => protocolName({ name, parent: group ? { name: group } : null });
-  assert.deepEqual([as('claude-1', 'swarm-agent'), as('needs-human', 'swarm'), as('needs-shaping', 'swarm'), as('needs-ios-sim', 'swarm'), as('blocked', 'swarm'),
+  assert.deepEqual([as('claude-1', 'swarm-agent'), as('needs-human', 'swarm'), as('needs-approval', 'swarm'), as('needs-ios-sim', 'swarm'), as('blocked', 'swarm'),
     as('agent-runner', 'repo'), as('platform/ios', 'platform'), as('web', 'platform'), as('swarm/blocked')],
-  ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-shaping', 'swarm/needs/ios-sim', 'swarm/blocked', 'repo/agent-runner', 'platform/ios', 'platform/web', 'swarm/blocked']);
-  for (const name of ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs/ios-sim', 'swarm/qa', 'repo/ops']) {
+  ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-approval', 'swarm/needs/ios-sim', 'swarm/blocked', 'repo/agent-runner', 'platform/ios', 'platform/web', 'swarm/blocked']);
+  for (const name of ['swarm/agent/claude-1', 'swarm/needs-human', 'swarm/needs-approval', 'swarm/needs/ios-sim', 'swarm/qa', 'repo/ops']) {
     const { group, child } = linearPlace(name);
     assert.equal(as(child, group), name, `${name} round-trips`);
   }
