@@ -33,7 +33,7 @@ or under `~/.cache`). `LINEAR_ACCESS_TOKEN`, a token minted elsewhere, or
 `LINEAR_API_KEY`, a personal key, does instead; with a personal key the swarm
 acts as that person. `LINEAR_TEAMS` (which team holds each repository's
 work, `owner/name=KEY` pairs; default `getcouchy/couchy=COU,getcouchy/couchy-agent=COU,getcouchy/agent-runner=COU`)
-`LINEAR_QA_STATE` (the state that is QA, default `QA`) and
+`LINEAR_QA_STATE` (the state that work waits for the owner's QA in, default `Review`) and
 `LINEAR_NEEDS_HUMAN_STATE` (the state a work item waits on a person in,
 default `Needs Human`) are optional. A team's items belong to the first repository listed
 for it, unless a label in the `repo` group names another. The swarm's labels
