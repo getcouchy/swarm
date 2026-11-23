@@ -21,15 +21,15 @@
 // DESK_COMMENTS=false leaves the comments out.
 
 import { pathToFileURL } from 'node:url';
-import { fromEnv } from './github.mjs';
-import { pushRun } from './metrics.mjs';
-import { providerFromEnv, tracker } from './workitems.mjs';
-import { focusOf } from './tick.mjs';
+import { fromEnv } from './lib/github.mjs';
+import { pushRun } from './lib/metrics.mjs';
+import { providerFromEnv, tracker } from './lib/workitems.mjs';
+import { focusOf } from './lib/tick.mjs';
 import {
   AGENT_PREFIX, BLOCKED, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
   blockGraph, downstream, needsQA, openParents, partOfIssues, providers, refText, whyNotClaimable, FAILED, SHAPED, shapeKind, whyNotShapeable,
-} from './rules.mjs';
+} from './lib/rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
 // description over 100 characters, and a refused label fails the sweep, so

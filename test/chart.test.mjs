@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 
-const chart = fileURLToPath(new URL('./charts/swarm', import.meta.url));
+const chart = fileURLToPath(new URL('../charts/swarm', import.meta.url));
 const skip = spawnSync('helm', ['version'], { encoding: 'utf8' }).status === 0 ? false : 'helm is not installed';
 
 function render(...sets) {
@@ -106,8 +106,8 @@ test('script arguments render as strings', { skip }, () => {
 // pull request can merge (the 2026-11-14 outage). Move a script only together
 // with a change to charts/swarm/values.yaml and a new chart release.
 test('every script the built-in jobs run exists', () => {
-  const values = readFileSync(new URL('./charts/swarm/values.yaml', import.meta.url), 'utf8');
+  const values = readFileSync(new URL('../charts/swarm/values.yaml', import.meta.url), 'utf8');
   const scripts = [...values.matchAll(/^\s+run: \[([^\],]+)/gm)].map((m) => m[1].trim());
   assert.deepEqual(scripts.sort(), ['reviewed.mjs', 'sweep.mjs']);
-  for (const s of scripts) assert.ok(existsSync(new URL(`./${s}`, import.meta.url)), `${s} is named in charts/swarm/values.yaml but missing`);
+  for (const s of scripts) assert.ok(existsSync(new URL(`../${s}`, import.meta.url)), `${s} is named in charts/swarm/values.yaml but missing`);
 });

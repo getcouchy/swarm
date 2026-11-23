@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import {
   appJwt, botEmail, credentialAnswer, envExports, exportBlock, identityFromEnv, installationToken, loadIdentity,
   manifest, saveIdentity, tokenCache,
-} from './bots.mjs';
+} from '../bots.mjs';
 
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const pem = privateKey.export({ type: 'pkcs1', format: 'pem' });
@@ -121,7 +121,7 @@ test('git-setup points a clone at the bot', () => {
   const repo = tmp();
   execFileSync('git', ['init', '-q', repo]);
   const env = { ...process.env, ...Object.fromEntries(exportBlock(id).split('\n').map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)])) };
-  const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), 'bots.mjs');
+  const cli = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bots.mjs');
   execFileSync('node', [cli, 'git-setup'], { cwd: repo, env, stdio: 'pipe' });
   const get = (k) => execFileSync('git', ['config', '--local', '--get-all', k], { cwd: repo, encoding: 'utf8' }).trimEnd().split('\n');
   assert.deepEqual(get('user.name'), ['couchy-codex[bot]']);

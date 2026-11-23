@@ -2,7 +2,7 @@
 
 `sweep.mjs` and `reviewed.mjs` report what they find as Prometheus metrics, so
 the state of the swarm can be read from a dashboard instead of from the Agent
-desk work item. The definitions are in [`metrics.mjs`](../metrics.mjs); a test
+desk work item. The definitions are in [`lib/metrics.mjs`](../lib/metrics.mjs); a test
 holds this page to them.
 
 ## How they get to Prometheus

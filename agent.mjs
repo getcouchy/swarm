@@ -48,11 +48,11 @@
 import { spawnSync } from 'node:child_process';
 import { relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { run, UsageError, writeEvent } from './commands.mjs';
-import { reposFromEnv } from './github.mjs';
-import { providerFromEnv, tracker } from './workitems.mjs';
-import { syncHere, toolsFromMain } from './preflight.mjs';
-import { isValidProvider } from './rules.mjs';
+import { run, UsageError, writeEvent } from './lib/commands.mjs';
+import { reposFromEnv } from './lib/github.mjs';
+import { providerFromEnv, tracker } from './lib/workitems.mjs';
+import { syncHere, toolsFromMain } from './lib/preflight.mjs';
+import { isValidProvider } from './lib/rules.mjs';
 
 const [cmd, ...args] = process.argv.slice(2);
 const me = process.env.AGENT_NAME || process.env.AGENT_PROVIDER; // the old variable still works

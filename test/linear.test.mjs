@@ -1,12 +1,12 @@
 // node --test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_TEAMS, appToken, linearClient, linearPlace, protocolName } from './linear.mjs';
-import { LabelGroupTaken, PROVIDER_METHODS, assertProvider, currentKey, isKey, parsePairs, tracker } from './workitems.mjs';
-import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from './rules.mjs';
-import { claim, focusOf, next } from './tick.mjs';
-import { findDesk, moveHandedOff, followPulls, readLinked, writeDesk } from './sweep.mjs';
-import { run } from './commands.mjs';
+import { DEFAULT_TEAMS, appToken, linearClient, linearPlace, protocolName } from '../lib/linear.mjs';
+import { LabelGroupTaken, PROVIDER_METHODS, assertProvider, currentKey, isKey, parsePairs, tracker } from '../lib/workitems.mjs';
+import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from '../lib/rules.mjs';
+import { claim, focusOf, next } from '../lib/tick.mjs';
+import { findDesk, moveHandedOff, followPulls, readLinked, writeDesk } from '../sweep.mjs';
+import { run } from '../lib/commands.mjs';
 
 const STATES = [
   { id: 's-backlog', name: 'Backlog', type: 'backlog', position: 0 },

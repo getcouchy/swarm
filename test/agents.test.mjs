@@ -6,14 +6,14 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, openParents, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, shapeKind, whyNotClaimable, whyNotShapeable,
-} from './rules.mjs';
-import { client } from './github.mjs';
-import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from './sweep.mjs';
-import { registry } from './metrics.mjs';
-import { claim, firstJob, focusOf, mayContinue, next, nextAcross, releaseAll } from './tick.mjs';
-import { run, UsageError, writeEvent } from './commands.mjs';
-import { report, status } from './reviewed.mjs';
-import { likelyWork, sync, toolsStale } from './preflight.mjs';
+} from '../lib/rules.mjs';
+import { client } from '../lib/github.mjs';
+import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from '../sweep.mjs';
+import { registry } from '../lib/metrics.mjs';
+import { claim, firstJob, focusOf, mayContinue, next, nextAcross, releaseAll } from '../lib/tick.mjs';
+import { run, UsageError, writeEvent } from '../lib/commands.mjs';
+import { report, status } from '../reviewed.mjs';
+import { likelyWork, sync, toolsStale } from '../lib/preflight.mjs';
 
 const NOW = Date.parse('2026-11-10T12:00:00Z');
 const ago = (h) => new Date(NOW - h * 3_600_000).toISOString();

@@ -15,9 +15,9 @@
 // when SWARM_PUSHGATEWAY_URL is set.
 
 import { pathToFileURL } from 'node:url';
-import { fromEnv } from './github.mjs';
-import { pushRun } from './metrics.mjs';
-import { REVIEWED, reviewedStatus } from './rules.mjs';
+import { fromEnv } from './lib/github.mjs';
+import { pushRun } from './lib/metrics.mjs';
+import { REVIEWED, reviewedStatus } from './lib/rules.mjs';
 
 /**
  * Posts the status for one PR unless its head already carries the same one. Returns { line, state }:

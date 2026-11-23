@@ -1,7 +1,7 @@
 // node --test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ShapeUsage, shapeCommand, titled } from './shape.mjs';
+import { ShapeUsage, shapeCommand, titled } from '../lib/shape.mjs';
 
 /** A work item's tracker, in memory: one item and what the commands did to it. */
 function fakeClient(item, { comments = [], attachments = [], files = {}, others = [], blocking = {} } = {}) {
