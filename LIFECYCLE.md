@@ -187,7 +187,7 @@ design, and the architect's design is reviewed by another agent.
 
 ### 8. QA
 
-- **Who:** the owner, when a work item reaches the QA state.
+- **Who:** the owner, when a work item reaches the Review state.
 - **What:** walk the acceptance checks in the deployed build. Pass moves it
   to Done. A fail goes back to Todo with a comment naming the check that
   failed; the fix is a new PR for that check only.
@@ -250,7 +250,7 @@ has skipped the check that role exists for.
 | Per feature | The riff | As long as it is useful |
 | Per feature | The spec, then merge | What it takes today |
 | Per feature | The plan card, then merge and move the packages to Todo | A few minutes: a table and at most three questions |
-| Per work item in QA | Walk the acceptance checks | What it takes today |
+| Per work item in Review | Walk the acceptance checks | What it takes today |
 | Weekly | The digest | About ten minutes |
 | Monthly | The audit's summary | About ten minutes |
 | Any time | A real fork | One answer |

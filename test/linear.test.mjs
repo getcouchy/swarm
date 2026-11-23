@@ -18,7 +18,7 @@ const STATES = [
   { id: 's-done', name: 'Done', type: 'completed', position: 4 },
   { id: 's-cancel', name: 'Canceled', type: 'canceled', position: 5 },
 ];
-const QA_STATE = { id: 's-qa', name: 'QA', type: 'started', position: 3.5 };
+const QA_STATE = { id: 's-qa', name: 'Review', type: 'started', position: 3.5 };
 
 /**
  * An in-memory Linear behind fetch: one team, its states, the workspace's
@@ -333,7 +333,7 @@ test('QA: work that touches what people use waits there for the owner; backend w
   assert.ok(needsQA(it('area/ci', 'swarm/qa')));
 });
 
-test('QA state: no agent takes an item there and it blocks nothing; merges move it once, so a failed QA stays in Todo', async () => {
+test('Review state: no agent takes an item there and it blocks nothing; merges move it once, so a failed QA stays in Todo', async () => {
   const fake = fakeLinear({
     states: [...STATES, QA_STATE],
     labels: [{ id: 'l-app', name: 'area/app' }, { id: 'l-api', name: 'area/api' }],
@@ -347,17 +347,17 @@ test('QA state: no agent takes an item there and it blocks nothing; merges move 
   });
   const items = t({ repo: 'getcouchy/couchy' }, client(fake));
   const open = await items.openIssues();
-  assert.deepEqual(open.map((i) => i.number), ['COU-1', 'COU-2', 'COU-4', 'COU-5'], 'an item in QA is not open work');
+  assert.deepEqual(open.map((i) => i.number), ['COU-1', 'COU-2', 'COU-4', 'COU-5'], 'an item in Review is not open work');
   assert.deepEqual((await items.inQA()).map((i) => [i.number, i.stage]), [['COU-3', 'qa']]);
-  assert.deepEqual(await items.blockers(open[2]), [], 'an item in QA blocks nothing');
+  assert.deepEqual(await items.blockers(open[2]), [], 'an item in Review blocks nothing');
   assert.equal(await items.setStage('COU-5', 'started'), 'started');
-  assert.equal(fake.issues[4].stateId, 's-doing', 'a claim moves to In Progress, never to QA');
+  assert.equal(fake.issues[4].stateId, 's-doing', 'a claim moves to In Progress, never to Review');
 
   const now = Date.parse('2026-11-16T12:00:00Z');
   const merged = (number, body) => ({ number, title: `PR ${number}`, body, merged_at: '2026-11-16T10:00:00Z', html_url: `https://github.com/x/${number}` });
   const gh = t({ repo: 'getcouchy/couchy', closedPulls: async () => [merged(60, 'Closes COU-1'), merged(61, 'Closes COU-2')] }, client(fake));
   const first = await followPulls(gh, { pulls: [], now });
-  assert.deepEqual(first.lines, ['COU-1 is in QA: PR #60 merged.', 'COU-2 is Done: PR #61 merged.']);
+  assert.deepEqual(first.lines, ['COU-1 is in Review: PR #60 merged.', 'COU-2 is Done: PR #61 merged.']);
   assert.deepEqual([fake.issues[0].stateId, fake.issues[1].stateId], ['s-qa', 's-done']);
   fake.issues[0].stateId = 's-todo';
   const stored = `<!-- swarm-linked: ${JSON.stringify(first.linked)} -->`;
@@ -366,7 +366,7 @@ test('QA state: no agent takes an item there and it blocks nothing; merges move 
   assert.equal(fake.issues[0].stateId, 's-todo');
 
   const noQa = t({ repo: 'getcouchy/couchy' }, client(fakeLinear({ issues: [item(1)] })));
-  assert.equal(await noQa.setStage('COU-1', 'qa'), 'completed', 'a team with no QA state sends it to Done');
+  assert.equal(await noQa.setStage('COU-1', 'qa'), 'completed', 'a team with no Review state sends it to Done');
 });
 
 test('desk: the markers live in one comment the sweep edits, so the next run remembers what it said', async () => {

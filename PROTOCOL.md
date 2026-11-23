@@ -46,7 +46,7 @@ What a work item's state means here:
 | Todo | ready for an agent to take |
 | In Progress, In Review | an agent has it, or a pull request for it is open; with neither, it is ready again |
 | Needs Human | waiting on a person: an agent asked a question only they can answer, or needs a step only they can take (see "When to call a person"); no agent takes it |
-| QA | a pull request that closes it merged, and the owner is walking its acceptance criteria; no agent takes it, and it blocks nothing |
+| Review | a pull request that closes it merged, and the owner is walking its acceptance criteria; no agent takes it, and it blocks nothing |
 | Done | a pull request that closes it merged, and it needed no QA or passed it |
 | Canceled | not doing it |
 
@@ -54,17 +54,17 @@ The owner moves work from Backlog to Todo; that is the approval. The tools
 move it to In Progress when an agent claims it, and the sweep moves it from
 Todo to In Progress while a pull request for it is open. Nothing moves work
 out of Backlog but the owner, even with a pull request open for it. When one that closes it merges, the sweep
-moves it to QA if it changes what people see and use, and to Done if not:
-QA when it carries `swarm/qa`, `platform/web`, `platform/ios` or `area/app`,
+moves it to Review if it changes what people see and use, and to Done if not:
+Review when it carries `swarm/qa`, `platform/web`, `platform/ios` or `area/app`,
 or none of `area/api`, `area/tooling` and `area/ci`. Add
 `swarm/qa` to backend work whose result people will notice; nothing takes
-work out of QA but the owner, who moves it to Done when it passes, or back to
+work out of Review but the owner, who moves it to Done when it passes, or back to
 Todo with a comment saying which criterion failed. Nothing takes work out of
 Needs Human but the owner either, who moves it on (to Backlog or Todo) once
-they have answered. Don't move a work item to QA or Done yourself, or to Needs
+they have answered. Don't move a work item to Review or Done yourself, or to Needs
 Human but with `needs-human`.
 
-An item back in Todo from QA is not new work: what shipped stays, and you fix
+An item back in Todo from Review is not new work: what shipped stays, and you fix
 only what the owner's comment says failed, on a fresh branch, in a new PR that
 says `Closes <key>`. `next` tells you when an item came back (the job's
 `returned`: the merged PRs and the comments since); with no comment saying
@@ -154,7 +154,7 @@ Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 | `swarm/design` | groom it, and design it in getcouchy/couchy-design: spec and wireframes (see "Shaping ticks"); no tick builds it meanwhile | the owner only |
 | `swarm/tech-design` | write the technical design for a merged spec, with its proposed issue sequence (see "Architect ticks"); no tick builds it meanwhile, and no shaping tick takes it | the owner only |
 | `swarm/shaped` | a shaping tick has done what `swarm/needs-shaping` or `swarm/design` asked, or an architect tick what `swarm/tech-design` asked; the owner reviews it | a shaping or architect tick, in place of the request |
-| `swarm/qa` | when its closing PR merges, the work item goes to QA, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
+| `swarm/qa` | when its closing PR merges, the work item goes to Review, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
 | `swarm/blocked` | the work item waits on other work: an open blocker, for views to filter on; ask for the blockers yourself before taking work. Not the Needs Human state, which waits on a person | the sweep only; it takes off any it finds without an open blocker |
 | `swarm/needs-human` | on a PR: a real fork or a step only a person can take; pages the owner and holds the merge. A work item goes to the Needs Human state instead | an agent, after its comment |
 | `swarm/hold` | holds a PR's merge for a wait an agent can end; pages nobody | an agent, with a comment |
@@ -263,7 +263,7 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    that you can take (see "What you may take") and that is not waiting for
    shaping (`swarm/needs-shaping`, `swarm/design` or `swarm/tech-design`), taken in the order "Focus"
    gives. Nothing outside focus is started. Lock it, read it with its
-   comments (`agent.mjs show <key>`), then build it; one back from QA gets
+   comments (`agent.mjs show <key>`), then build it; one back from Review gets
    only the fix its feedback asks for (see "Where the work is"). A work item's blockers are the items Linear's
    "blocked by" relation names, and those its description names after
    "Blocked by" (`COU-40`, an old key like `COUCHYUX-40`, or `#640` for the
@@ -677,12 +677,12 @@ it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
 sweeps only its own repository's work items and pull requests. It removes a lapsed claim and settles a doubled one, keeps
 `swarm/blocked` on the open work items that have an open blocker, moves
 work items with their pull requests (In Progress from Todo, never Backlog, with
-a link while one is open, QA or Done once one that closes them merges), and it keeps the **Agent desk**
+a link while one is open, Review or Done once one that closes them merges), and it keeps the **Agent desk**
 work item in Linear current with whatever is overdue: a ready work item in focus
 no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
 waiting on a person (a work item in Needs Human, a PR labelled `swarm/needs-human`;
-with the work items it holds up, those in focus marked), work waiting in QA, work waiting for a shaping tick, shaped work in
+with the work items it holds up, those in focus marked), work waiting in Review, work waiting for a shaping tick, shaped work in
 Backlog waiting for the owner, an agent that stopped ticking. A shaping
 tick's lock on a Backlog item is expected; any other tick's is listed.
 

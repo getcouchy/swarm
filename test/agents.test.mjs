@@ -368,7 +368,7 @@ test('sweep: only work in focus is waiting for an agent; Needs you says what eac
   assert.deepEqual(gh.log.filter((l) => l.includes('swarm/blocked')), ['add 30 swarm/blocked', 'remove 32 swarm/blocked', 'remove 33 swarm/blocked']);
   // Merged work waiting for the owner's QA is on the desk too.
   const withQA = await sweep(fake({ qa: [issue(9, ['area/app'], { stage: 'qa', state: 'closed', updated_at: ago(3) })] }), { now: NOW, limits: LIMITS });
-  assert.deepEqual(withQA.overdue.filter((o) => o.section === 'Waiting for your QA').map((o) => [o.line, o.since]), [['#9 Issue 9', ago(3)]]);
+  assert.deepEqual(withQA.overdue.filter((o) => o.section === 'Waiting for your review').map((o) => [o.line, o.since]), [['#9 Issue 9', ago(3)]]);
 });
 
 test('sweep: an agent with several heartbeat comments is listed once, by its newest', async () => {

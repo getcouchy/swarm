@@ -301,7 +301,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
 
   // Merged work waiting for the owner to walk its acceptance criteria.
   for (const item of (await gh.inQA?.()) ?? []) {
-    flag('Waiting for your QA', `qa:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
+    flag('Waiting for your review', `qa:${item.number}`, `${refText(item.number)} ${item.title}`, { number: item.number, since: item.updated_at });
   }
 
   // Work the owner asked a shaping tick for that none has taken, and shaped
@@ -384,7 +384,7 @@ export function readLinked(body) {
  * of it, moves it from Todo to In Progress and puts a link to itself on it.
  * Backlog is the owner's: an item there only gets the link, so one the owner
  * moves back to Backlog stays there while its PR is open. One that closes it and merged in the last two days moves it
- * to QA when it needs the owner's QA (rules.mjs, needsQA), else to Done. Each
+ * to Review when it needs the owner's QA (rules.mjs, needsQA), else to Done. Each
  * merge moves its item once (an `item>pr` pair beside the `item<pr` links), so
  * an item the owner sends back to Todo stays there. A PR may name an item by
  * its key or by the GitHub issue it was copied from. Returns the lines to log
@@ -420,7 +420,7 @@ export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) 
       const stage = await gh.setStage(item.number, needsQA(item) ? 'qa' : 'completed');
       await link(item, pr);
       seen.add(moved);
-      lines.push(`${item.number} is ${stage === 'qa' ? 'in QA' : 'Done'}: PR #${pr.number} merged.`);
+      lines.push(`${item.number} is ${stage === 'qa' ? 'in Review' : 'Done'}: PR #${pr.number} merged.`);
     }
   }
   return { lines, linked: [...seen].slice(-1000) };
