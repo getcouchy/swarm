@@ -36,6 +36,27 @@ export async function status(gh, pr, { creator = process.env.REVIEWED_CREATOR ||
   return { line, state: want.state };
 }
 
+/**
+ * status() for every open one of `pulls`. One that can't be worked out gets no
+ * status and is named in `failed`; the rest get theirs, so one unreadable
+ * author never holds up every merge.
+ */
+export async function reportAll(gh, pulls, { log = console.log, error = console.error, ...opts } = {}) {
+  const posted = [];
+  const failed = [];
+  for (const pr of pulls.filter((p) => p.state === 'open')) {
+    try {
+      const { line, state } = await status(gh, pr, opts);
+      log(line);
+      posted.push({ number: pr.number, state });
+    } catch (e) {
+      error(`#${pr.number}: ${e.message}`);
+      failed.push(pr.number);
+    }
+  }
+  return { posted, failed };
+}
+
 /** status(), for callers that want only the line to log. */
 export const report = async (gh, pr, opts) => (await status(gh, pr, opts)).line;
 
@@ -44,12 +65,8 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const gh = fromEnv();
   const number = Number(process.argv[2] || process.env.PR_NUMBER);
   const pulls = number ? [await gh.pull(number)] : await gh.openPulls();
-  const posted = [];
-  for (const pr of pulls.filter((p) => p.state === 'open')) {
-    const { line, state } = await status(gh, pr);
-    console.log(line);
-    posted.push({ number: pr.number, state });
-  }
+  const { posted, failed } = await reportAll(gh, pulls);
+  if (failed.length) process.exitCode = 1; // the job shows as failed, with every other status posted
   // The statuses are all posted before a metric is touched: nothing about the
   // metrics may keep a pull request from its status. A push replaces everything
   // this job pushed before, so a run for one pull request doesn't push: it
@@ -60,5 +77,6 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     reg.set('swarm_job_duration_seconds', {}, (Date.now() - startedAt) / 1000);
     if (gh.rateLimitRemaining() !== null) reg.set('swarm_github_rate_limit_remaining', {}, gh.rateLimitRemaining());
   };
-  if (!number && await pushRun({ fill, job: 'swarm_reviewed', repository: gh.repo })) console.log('Pushed metrics.');
+  // Nor does a run with a failure: the last success it pushed before stays, and ages.
+  if (!number && !failed.length && await pushRun({ fill, job: 'swarm_reviewed', repository: gh.repo })) console.log('Pushed metrics.');
 }
