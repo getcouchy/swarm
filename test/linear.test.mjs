@@ -275,6 +275,7 @@ test('the list has what is open, its finished parts, and no other finished work'
   assert.deepEqual([items.seen('COU-7').title, items.seen('COU-2')], ['Item 7', null]);
   // One that isn't in it is still read by its key.
   assert.equal((await items.issue('COU-2')).state, 'closed');
+  assert.equal(items.seen('COU-2').title, 'Item 2', 'and remembered');
   await items.comment('COU-12', 'x');
   assert.equal(fake.comments.i12.length, 1);
 });
@@ -286,8 +287,7 @@ test('the clients of one team read its list, labels and relations once between t
   const b = client(fake, { shared, repo: 'getcouchy/couchy-agent', defaultRepo: 'getcouchy/couchy' });
   const [x, y] = await Promise.all([a.all(), b.all()]);
   assert.deepEqual(x.map((i) => i.key), y.map((i) => i.key));
-  await a.relations('COU-2');
-  await b.relations('COU-2');
+  await Promise.all([a.relations('COU-2'), b.relations('COU-2')]);
   for (const call of ['query organization', 'query issueLabels', 'query issues']) assert.equal(fake.calls.filter((c) => c === call).length, 1, call);
   await Promise.all([a.relations('COU-1'), b.relations('COU-1')]);
   assert.equal(fake.calls.filter((c) => c === 'query issueRelations').length, 1, 'every relation, read once');
@@ -321,6 +321,7 @@ test('whether the other end of a relation is open is read from the list', async 
   // Finished work isn't in the list; a merged design in Review still blocks; another team's item is asked about.
   assert.deepEqual(await blockers(), ['COU-2', 'COU-5', 'OPS-6']);
   assert.deepEqual((await c.relations('COU-1')).blocking, [{ key: 'COU-2', open: true }]);
+  assert.equal(fake.calls.filter((x) => x === 'query issue').length, 2, "only another team's, once each");
   assert.deepEqual((await c.all()).map((i) => i.key).filter((k) => k.startsWith('OPS')), [], "another team's item doesn't join this team's work");
   // A blocker this client finishes stops blocking, and a relation it makes is there.
   await c.setStage('COU-2', 'completed');
