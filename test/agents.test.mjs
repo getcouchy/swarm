@@ -12,7 +12,7 @@ import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sw
 import { registry } from '../lib/metrics.mjs';
 import { claim, firstJob, focusOf, mayContinue, next, nextAcross, queueOf, releaseAll } from '../lib/tick.mjs';
 import { run, UsageError, writeEvent } from '../lib/commands.mjs';
-import { report, status } from '../reviewed.mjs';
+import { report, reportAll, status } from '../reviewed.mjs';
 import { likelyWork, sync, toolsCommit, toolsStale } from '../lib/preflight.mjs';
 
 const NOW = Date.parse('2026-11-10T12:00:00Z');
@@ -68,8 +68,8 @@ function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = 
     editIssue: async (n, patch) => { log.push(`edit ${n}`); Object.assign(find(n), patch); },
   };
 }
-// A review as GitHub gives one of an insider's, unless it says otherwise.
-const by = (r) => ({ author_association: 'MEMBER', ...r });
+// A review by someone who may push, unless it says otherwise.
+const by = (r) => ({ trusted: true, ...r });
 const LIMITS = { claim: 90, ready: 4, review: 4, fix: 2, hold: 24, heartbeat: 8 };
 
 test('closing keywords', () => {
@@ -134,7 +134,7 @@ test('what makes an issue unclaimable', () => {
 
 test('a verdict in a comment counts as a review; a bare marker does not', async () => {
   const by = { user: { login: 'couchybot', type: 'User' }, author_association: 'MEMBER' };
-  const fetchImpl = async (url) => ({ ok: true, status: 200, json: async () => (new URL(url).pathname.endsWith('/reviews') ? [] : [
+  const fetchImpl = async (url) => ({ ok: true, status: 200, json: async () => (url.includes('/collaborators/') ? { permission: 'write' } : new URL(url).pathname.endsWith('/reviews') ? [] : [
     { id: 1, body: 'Claimed. <!-- agent: claude-1 -->', created_at: ago(3), ...by },
     { id: 2, body: 'Looks right. <!-- agent: claude-3 verdict: ok -->', created_at: ago(2), ...by },
   ]) });
@@ -144,12 +144,22 @@ test('a verdict in a comment counts as a review; a bare marker does not', async 
 });
 
 test("an outsider's marker is not a review", () => {
-  const r = (author_association, user = { login: 'x', type: 'User' }) =>
-    ({ body: '<!-- agent: codex verdict: ok -->', state: 'COMMENTED', submitted_at: ago(1), user, author_association });
+  const r = (trusted, user = { login: 'x', type: 'User' }) => ({ body: '<!-- agent: codex verdict: ok -->', state: 'COMMENTED', submitted_at: ago(1), user, author_association: 'MEMBER', trusted });
   const counts = (x) => independentReviews(pull(9, ['swarm/pr']), [x]).length;
-  for (const a of ['NONE', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', undefined]) assert.equal(counts(r(a)), 0, String(a));
-  for (const a of ['OWNER', 'MEMBER', 'COLLABORATOR']) assert.equal(counts(r(a)), 1, a);
-  assert.equal(counts(r('NONE', { login: 'couchy-codex[bot]', type: 'Bot' })), 1, "an agent's own App");
+  assert.deepEqual([undefined, false, true].map((t) => counts(r(t))), [0, 0, 1], 'what the association says changes nothing');
+  assert.equal(counts(r(undefined, { login: 'couchy-codex[bot]', type: 'Bot' })), 1, "an agent's own App");
+});
+
+test('one pull request whose verdict cannot be read costs its status, not the others', async () => {
+  const gh = fake({ pulls: [pull(1, ['swarm/pr']), pull(2, ['swarm/pr']), pull(3, ['swarm/pr'])], reviews: { 1: [verdict('ok')], 3: [verdict('changes')] } });
+  const readable = gh.reviews;
+  gh.reviews = async (n) => { if (n === 2) throw new Error('403 Resource not accessible'); return readable(n); };
+  const said = [];
+  const { posted, failed } = await reportAll(gh, (await gh.openPulls()).map((p) => ({ ...p, state: 'open' })), { log: (l) => said.push(l), error: (l) => said.push(`ERROR ${l}`) });
+  assert.deepEqual(posted, [{ number: 1, state: 'success' }, { number: 3, state: 'failure' }]);
+  assert.deepEqual(failed, [2]);
+  assert.deepEqual(gh.log, ['status sha1 success', 'status sha3 failure'], 'the one that failed gets no status at all');
+  assert.match(said[1], /^ERROR #2: 403/);
 });
 
 test("whether a reviewer counts is the repository's answer, whoever asks", async () => {
@@ -164,7 +174,7 @@ test("whether a reviewer counts is the repository's answer, whoever asks", async
     if (login && !permission[login]) return { ok: false, status: login === 'gone' ? 404 : 403, text: async () => 'no' };
     if (login) return { ok: true, status: 200, json: async () => ({ permission: permission[login] }) };
     return { ok: true, status: 200, json: async () => (path.endsWith('/reviews')
-      ? [said(1, 'couchybot'), said(2, 'reader'), said(3, 'writer'), said(4, 'gone'), said(5, 'couchy-codex[bot]', 'Bot'), said(6, 'couchybot'), { ...said(7, 'x'), user: null }]
+      ? [said(1, 'couchybot'), { ...said(2, 'reader'), author_association: 'COLLABORATOR' }, said(3, 'writer'), said(4, 'gone'), said(5, 'couchy-codex[bot]', 'Bot'), said(6, 'couchybot'), { ...said(7, 'x'), user: null }]
       : []) };
   };
   const gh = client({ token: 't', repo: 'o/r', fetchImpl });
@@ -182,7 +192,7 @@ test("whether a reviewer counts is the repository's answer, whoever asks", async
 
 test('a review counts when an agent marked it or another account wrote it, never a bot', () => {
   const pr = pull(9, ['swarm/pr']);
-  const r = (body, login = 'owner', type = 'User') => ({ body, state: 'COMMENTED', user: { login, type }, submitted_at: ago(1), author_association: type === 'Bot' ? 'NONE' : 'MEMBER' });
+  const r = (body, login = 'owner', type = 'User') => ({ body, state: 'COMMENTED', user: { login, type }, submitted_at: ago(1), trusted: type === 'User' });
   assert.equal(independentReviews(pr, [r('Looks fine <!-- agent: codex -->')]).length, 1, 'an agent with the author\'s name: a fresh session');
   assert.equal(independentReviews(pr, [r('replying in a thread')]).length, 0, 'unmarked, same account');
   assert.equal(independentReviews(pr, [r('nit', 'cubic-dev-ai[bot]', 'Bot')]).length, 0, 'a bot');
