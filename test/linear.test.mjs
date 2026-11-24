@@ -31,10 +31,10 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
   const attachments = {};
   let left = limit;
   let n = 0;
-  const byId = (id) => issues.find((i) => i.id === id || `COU-${i.number}` === id);
+  const byId = (id) => issues.find((i) => i.id === id || (i.key ?? `COU-${i.number}`) === id);
   const state = (id) => states.find((s) => s.id === id);
   const raw = (i) => ({
-    id: i.id, identifier: `COU-${i.number}`, title: i.title, description: i.description, priority: i.priority,
+    id: i.id, identifier: i.key ?? `COU-${i.number}`, title: i.title, description: i.description, priority: i.priority,
     url: `https://linear.app/couchy/issue/COU-${i.number}/x`, createdAt: i.createdAt, updatedAt: i.updatedAt,
     state: (({ id, name, type }) => ({ id, name, type }))(state(i.stateId)),
     labels: { nodes: i.labelIds.map((id) => labels.find((l) => l.id === id)) },
@@ -42,7 +42,7 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
     cycle: i.sprint ? { id: 'cy1', isActive: true } : i.cycleId ? { id: i.cycleId, isActive: false } : null,
     project: i.projectId ? { id: i.projectId } : null,
   });
-  const rel = (i) => ({ identifier: `COU-${i.number}`, state: { type: state(i.stateId).type, name: state(i.stateId).name }, labels: { nodes: i.labelIds.map((id) => labels.find((l) => l.id === id)) } });
+  const rel = (i) => ({ identifier: i.key ?? `COU-${i.number}` });
   const page = (nodes) => ({ nodes, pageInfo: { hasNextPage: false, endCursor: null } });
   const ok = (data, headers = {}) => ({
     ok: true, status: 200, json: async () => ({ data }), text: async () => '', headers: { get: (h) => headers[h.toLowerCase()] ?? null },
@@ -63,8 +63,10 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
       case 'issues': {
         const meets = (i, f) => Object.entries(f).every(([k, want]) => {
           if (k === 'or') return want.some((w) => meets(i, w));
-          if (k === 'team') return true;
-          if (k === 'parent') return Boolean(byId(i.parentId)) && meets(byId(i.parentId), want);
+          if (k === 'team') return !i.key; // an item with a key of its own is another team's
+          // An item with no parent meets what is asked of one, unless `null` says not.
+          if (k === 'parent') return i.parentId ? meets(byId(i.parentId), { ...want, null: undefined }) : want.null !== false;
+          if (k === 'null') return true;
           if (k === 'labels') return i.labelIds.some((id) => want.name.in.includes(labels.find((l) => l.id === id).name));
           if (k !== 'state') throw new Error(`fake Linear: no filter on ${k}`);
           const st = state(i.stateId);
@@ -72,15 +74,10 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
         });
         return reply({ issues: page(issues.filter((i) => meets(i, v.filter)).map(raw)) });
       }
+      case 'issueRelations': return reply({ issueRelations: page(relations.map((r) => ({ type: r.type, issue: { identifier: rel(byId(r.from)).identifier }, relatedIssue: { identifier: rel(byId(r.to)).identifier } }))) });
       case 'issue': {
         const i = byId(v.id);
         if (!i) return { ok: true, status: 200, json: async () => ({ errors: [{ message: 'Entity not found: Issue' }] }), headers: { get: () => null } };
-        if (/relations\(/.test(query)) {
-          return reply({ issue: {
-            relations: page(relations.filter((r) => r.from === i.id).map((r) => ({ type: r.type, relatedIssue: rel(byId(r.to)) }))),
-            inverseRelations: page(relations.filter((r) => r.to === i.id).map((r) => ({ type: r.type, issue: rel(byId(r.from)) }))),
-          } });
-        }
         if (/comments\(/.test(query)) return reply({ issue: { comments: page(comments[i.id] ?? []) } });
         if (/attachments\(/.test(query)) return reply({ issue: { attachments: page(attachments[i.id] ?? []) } });
         if (/history\(/.test(query)) return reply({ issue: { history: page(history[i.id] ?? []) } });
@@ -292,7 +289,9 @@ test('the clients of one team read its list, labels and relations once between t
   await a.relations('COU-2');
   await b.relations('COU-2');
   for (const call of ['query organization', 'query issueLabels', 'query issues']) assert.equal(fake.calls.filter((c) => c === call).length, 1, call);
-  assert.equal(fake.calls.filter((c) => c === 'query issue').length, 1, 'one read of its relations');
+  await Promise.all([a.relations('COU-1'), b.relations('COU-1')]);
+  assert.equal(fake.calls.filter((c) => c === 'query issueRelations').length, 1, 'every relation, read once');
+  assert.ok(!fake.calls.includes('query issue'), 'and none by itself');
   // What one writes the other sees, and a list that failed to load is asked for again.
   await a.setStage('COU-1', 'completed');
   assert.equal((await b.all()).find((i) => i.key === 'COU-1').stage, 'completed');
@@ -308,6 +307,29 @@ test('the clients of one team read its list, labels and relations once between t
   fake.calls.length = 0;
   await client(fake).all();
   assert.equal(fake.calls.filter((c) => c === 'query issues').length, 1);
+});
+
+test('whether the other end of a relation is open is read from the list', async () => {
+  const fake = fakeLinear({
+    states: [...STATES, QA_STATE],
+    labels: [{ id: 'l-td', name: 'tech-design', parent: { id: 'g', name: 'swarm' } }],
+    issues: [item(1), item(2), item(3, { stateId: 's-done' }), item(4, { stateId: 's-qa' }), item(5, { stateId: 's-qa', labelIds: ['l-td'] }), { ...item(6), key: 'OPS-6' }, { ...item(7, { stateId: 's-done' }), key: 'OPS-7' }],
+    relations: [2, 3, 4, 5, 6, 7].map((n) => ({ from: `i${n}`, to: 'i1', type: 'blocks' })).concat({ from: 'i1', to: 'i2', type: 'blocks' }, { from: 'i2', to: 'i1', type: 'related' }),
+  });
+  const c = client(fake);
+  const blockers = async () => (await c.relations('COU-1')).blockedBy.filter((r) => r.open).map((r) => r.key);
+  // Finished work isn't in the list; a merged design in Review still blocks; another team's item is asked about.
+  assert.deepEqual(await blockers(), ['COU-2', 'COU-5', 'OPS-6']);
+  assert.deepEqual((await c.relations('COU-1')).blocking, [{ key: 'COU-2', open: true }]);
+  assert.deepEqual((await c.all()).map((i) => i.key).filter((k) => k.startsWith('OPS')), [], "another team's item doesn't join this team's work");
+  // A blocker this client finishes stops blocking, and a relation it makes is there.
+  await c.setStage('COU-2', 'completed');
+  assert.deepEqual(await blockers(), ['COU-5', 'OPS-6']);
+  await c.setStage('COU-2', 'unstarted');
+  await c.relate('COU-5', 'blocked_by', ['COU-2']);
+  assert.deepEqual((await c.relations('COU-5')).blockedBy, [{ key: 'COU-2', open: true }]);
+  // Nothing blocked: nothing in either direction.
+  assert.deepEqual(await client(fakeLinear({ issues: [item(1)] })).relations('COU-1'), { blocking: [], blockedBy: [] });
 });
 
 test('from the environment, the repositories of one team share their reads', () => {
@@ -368,7 +390,7 @@ test('blocking relations name the open items that wait, read once with the block
   assert.equal(one.priority, 'urgent');
   assert.deepEqual(await items.blocking(one), ['COU-2']);
   await items.blockers(one);
-  assert.equal(fake.calls.filter((c) => c === 'query issue').length, 1);
+  assert.equal(fake.calls.filter((c) => c === 'query issueRelations').length, 1);
 });
 
 test('a PR names a work item by key, old key, or the GitHub issue it was copied from', async () => {
