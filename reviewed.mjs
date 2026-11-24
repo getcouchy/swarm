@@ -17,7 +17,7 @@
 import { pathToFileURL } from 'node:url';
 import { fromEnv } from './lib/github.mjs';
 import { pushRun } from './lib/metrics.mjs';
-import { REVIEWED, reviewedStatus } from './lib/rules.mjs';
+import { REVIEWED, checkToWaitFor, isReviewable, reviewedStatus } from './lib/rules.mjs';
 
 /**
  * Posts the status for one PR unless its head already carries the same one. Returns { line, state }:
@@ -27,7 +27,12 @@ import { REVIEWED, reviewedStatus } from './lib/rules.mjs';
  * so one GitHub Actions left behind must not stop this app writing its own.
  */
 export async function status(gh, pr, { creator = process.env.REVIEWED_CREATOR || '' } = {}) {
-  const want = reviewedStatus(pr, await gh.reviews(pr.number));
+  let want = reviewedStatus(pr, await gh.reviews(pr.number));
+  if (want.state === 'success' && isReviewable(pr)) {
+    const required = await gh.requiredChecks(pr.base?.ref);
+    const wait = required.length ? checkToWaitFor(required, await gh.allChecks(pr.head.sha)) : null;
+    if (wait) want = { state: 'pending', description: `Reviewed ok. ${wait}` };
+  }
   // Statuses come newest first; GitHub keeps at most 1000 per commit and context, so don't repeat one.
   const have = (await gh.statuses(pr.head.sha)).find((s) => s.context === REVIEWED && (!creator || s.creator?.login === creator));
   const line = `#${pr.number}: ${want.state} (${want.description})`;

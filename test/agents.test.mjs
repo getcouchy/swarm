@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import {
-  agentFromLogin, agentOf, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, openParents, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, requestKind, whyNotClaimable, whyNotBreakdown,
+  agentFromLogin, agentOf, checkToWaitFor, bodyBlockers, claimWinner, closingIssues, fixReasons, independentReviews, canonical, lockLapsed, openParents, pullState, isReviewOnly, isSwarmPull, oldName, providers, linkedPulls, reviewedStatus, requestKind, whyNotClaimable, whyNotBreakdown,
 } from '../lib/rules.mjs';
 import { client } from '../lib/github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from '../sweep.mjs';
@@ -59,6 +59,7 @@ function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = 
     events: async (n) => events[n] ?? [],
     reviews: async (n) => (reviews[n] ?? []).map(by),
     checks: async (sha) => checks[sha] ?? [],
+    allChecks: async (sha) => { log.push(`all checks ${sha}`); return checks[sha] ?? []; },
     commit: async (sha) => ({ commit: { committer: { date: pushed[sha] ?? ago(1) } } }),
     blockers: async (i) => blockers[i.number] ?? [],
     blocking: async (i) => blocking[i.number] ?? [],
@@ -644,6 +645,54 @@ test('swarm/review-only: agents review a person\'s PR and the gate holds it, but
   // A draft is not carried on.
   job = await next(fake({ pulls: [{ ...pr, draft: true }] }), { me: 'codex', doClaim: false });
   assert.equal(job.job, 'none');
+});
+
+test("a required check's real run is waited for, whatever skipped run hides it", () => {
+  const at = (m) => `2026-11-10T08:${String(m).padStart(2, '0')}:00Z`;
+  const run = (name, m, conclusion, status = 'completed') => ({ id: m, name, status, conclusion, started_at: at(m) });
+  const wait = (...checks) => checkToWaitFor(['simulator', 'check', 'reviewed'], checks);
+  const passed = run('check', 1, 'success');
+  // A lock label's skipped run, newer than the real one still going.
+  assert.equal(wait(passed, run('simulator', 40, null, 'in_progress'), run('simulator', 43, 'skipped')), 'Waiting for simulator');
+  assert.equal(wait(passed, run('simulator', 40, 'failure'), run('simulator', 43, 'skipped')), 'simulator failed');
+  assert.equal(wait(passed, run('simulator', 40, 'success'), run('simulator', 43, 'skipped')), null);
+  assert.equal(wait(passed, run('simulator', 40, 'failure'), run('simulator', 50, 'success')), null, 'the newest real run counts');
+  assert.equal(wait(passed, run('simulator', 40, 'success'), run('simulator', 50, null, 'queued')), 'Waiting for simulator');
+  assert.equal(wait(passed, run('simulator', 40, 'success'), { ...run('simulator', 50, null, 'queued'), started_at: null }), 'Waiting for simulator');
+  assert.equal(wait(passed, run('simulator', 40, 'cancelled'), run('simulator', 41, 'success')), null);
+  assert.equal(wait(passed, run('simulator', 40, 'timed_out')), 'simulator failed');
+  // A docs-only PR's simulator only ever skips, and that is a pass.
+  assert.equal(wait(passed, run('simulator', 40, 'skipped')), null);
+  // Nothing has reported yet: GitHub itself waits for the check to exist.
+  assert.equal(wait(), null);
+  // What isn't required isn't waited for, and neither is `reviewed` itself.
+  assert.equal(wait(passed, run('smoke', 1, 'failure'), run('reviewed', 1, 'failure')), null);
+});
+
+test('reviewed status: an ok verdict is not posted while a required check has not really passed', async () => {
+  const pr = (extra = {}) => ({ ...pull(1, ['swarm/pr']), base: { ref: 'main' }, ...extra });
+  const going = { sha1: [{ id: 1, name: 'simulator', status: 'in_progress', conclusion: null, started_at: ago(1) }, { id: 2, name: 'simulator', status: 'completed', conclusion: 'skipped', started_at: ago(0.5) }] };
+  const of = async (p, opts) => { const gh = fake({ required: ['simulator', 'reviewed'], checks: going, ...opts }); return [(await status(gh, p)).state, gh.log]; };
+  assert.equal((await of(pr(), { reviews: { 1: [verdict('ok')] } }))[0], 'pending');
+  assert.equal((await of(pr(), { reviews: { 1: [verdict('ok')] }, checks: {} }))[0], 'success');
+  assert.equal((await of(pr(), { reviews: { 1: [verdict('ok')] }, required: [] }))[0], 'success', 'nothing is required, or the rules cannot be read');
+  // Without an ok there is nothing to hold, and the checks aren't asked for.
+  for (const reviews of [{}, { 1: [verdict('changes')] }]) assert.ok(!(await of(pr(), { reviews }))[1].some((l) => l.startsWith('all checks')));
+  // A person's PR is theirs: its `reviewed` doesn't wait.
+  const [state, log] = await of({ ...pr(), labels: [] }, {});
+  assert.deepEqual([state, log.some((l) => l.startsWith('all checks'))], ['success', false]);
+});
+
+test("github: every run of a check is read, and a branch's required checks once", async () => {
+  const asked = [];
+  const gh = client({ token: 't', repo: 'o/r', fetchImpl: async (url) => {
+    asked.push(new URL(url).pathname + new URL(url).search);
+    return { ok: true, status: 200, json: async () => (url.includes('/rules/') ? [{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'check' }] } }] : { check_runs: [{ id: 1 }] }) };
+  } });
+  assert.deepEqual(await gh.allChecks('abc'), [{ id: 1 }]);
+  assert.match(asked[0], /\/commits\/abc\/check-runs\?filter=all&per_page=100&page=1$/);
+  assert.deepEqual([await gh.requiredChecks(), await gh.requiredChecks('main'), await gh.requiredChecks('next')], [['check'], ['check'], ['check']]);
+  assert.equal(asked.filter((a) => a.includes('/rules/branches/main')).length, 1);
 });
 
 test('reviewed status: with REVIEWED_CREATOR, another account\'s status does not count', async () => {
