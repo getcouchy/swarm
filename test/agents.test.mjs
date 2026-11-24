@@ -148,6 +148,34 @@ test("an outsider's marker is not a review", () => {
   assert.equal(counts(r('NONE', { login: 'couchy-codex[bot]', type: 'Bot' })), 1, "an agent's own App");
 });
 
+test("whether a reviewer counts is the repository's answer, whoever asks", async () => {
+  // GitHub shows a private member as CONTRIBUTOR to a token that can't see the membership.
+  const permission = { couchybot: 'admin', writer: 'write', reader: 'read' };
+  const asked = [];
+  const said = (id, login, type = 'User', body = '<!-- agent: codex verdict: ok -->') => ({ id, body, state: 'COMMENTED', submitted_at: ago(1), user: { login, type }, author_association: 'CONTRIBUTOR' });
+  const fetchImpl = async (url) => {
+    const path = new URL(url).pathname;
+    const login = /\/collaborators\/([^/]+)\/permission$/.exec(path)?.[1];
+    if (login) asked.push(login);
+    if (login && !permission[login]) return { ok: false, status: login === 'gone' ? 404 : 403, text: async () => 'no' };
+    if (login) return { ok: true, status: 200, json: async () => ({ permission: permission[login] }) };
+    return { ok: true, status: 200, json: async () => (path.endsWith('/reviews')
+      ? [said(1, 'couchybot'), said(2, 'reader'), said(3, 'writer'), said(4, 'gone'), said(5, 'couchy-codex[bot]', 'Bot'), said(6, 'couchybot'), { ...said(7, 'x'), user: null }]
+      : []) };
+  };
+  const gh = client({ token: 't', repo: 'o/r', fetchImpl });
+  const reviews = await gh.reviews(9);
+  assert.deepEqual(independentReviews(pull(9, ['swarm/pr']), reviews).map((r) => r.id), [1, 3, 5, 6]);
+  await gh.reviews(10);
+  assert.deepEqual(asked.sort(), ['couchybot', 'gone', 'reader', 'writer'], 'each is asked about once, and a bot never');
+
+  // An answer it may not read must not turn every verdict off: the command fails instead.
+  const blind = client({ token: 't', repo: 'o/r', fetchImpl: async (url) => (new URL(url).pathname.includes('/collaborators/')
+    ? { ok: false, status: 403, text: async () => 'Resource not accessible' }
+    : { ok: true, status: 200, json: async () => (new URL(url).pathname.endsWith('/reviews') ? [said(1, 'couchybot')] : []) }) });
+  await assert.rejects(() => blind.reviews(9), /403/);
+});
+
 test('a review counts when an agent marked it or another account wrote it, never a bot', () => {
   const pr = pull(9, ['swarm/pr']);
   const r = (body, login = 'owner', type = 'User') => ({ body, state: 'COMMENTED', user: { login, type }, submitted_at: ago(1), author_association: type === 'Bot' ? 'NONE' : 'MEMBER' });
