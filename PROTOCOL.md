@@ -472,7 +472,9 @@ standing instruction to every agent working here.
   PR** (when it leaves draft, if it started as one). The `reviewed` status on
   the PR's head is GitHub's own record of the review: green once the latest
   verdict is `ok`, waiting until then and while `swarm/needs-human` or `swarm/hold`
-  is on the PR, red on `changes`. GitHub won't merge without it, so auto-merge
+  is on the PR, red on `changes`. It also waits while the newest run of a required
+  check that wasn't skipped or cancelled hasn't passed: GitHub takes a later
+  skipped run (a label starts one) for a pass. GitHub won't merge without it, so auto-merge
   can go on at once and nobody has to turn it off again. A repository's
   required checks are in its branch rules; the tick tool reads them for you
   and offers the `merge` job.
