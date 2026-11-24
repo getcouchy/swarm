@@ -30,7 +30,7 @@ first, then priority. A task-breakdown tick never takes these, and you take noth
 else: no `swarm/task-breakdown`, no pull request, no build.
 
 One technical design per run. Your time limit is the run's timeout, not
-`PROTOCOL.md`'s 20 and 45 minutes; keep ten minutes to end cleanly. If the
+`PROTOCOL.md`'s limit and ceiling; keep ten minutes to end cleanly. If the
 design is not finished by then, push your branch, say on the work item what is
 done and what is left, and leave the work item labelled: the next architect
 tick carries it on. Open the pull request only when the design is whole.

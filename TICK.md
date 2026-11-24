@@ -14,8 +14,9 @@ instructions to every scheduled tick, as if they were in your prompt.
 
 ## Setup, each run
 
-1. Note the time you start. The tick limit is 20 minutes and the hard ceiling
-   is 45 minutes from that time (PROTOCOL.md, "When a tick ends").
+1. Note the time you start, and read the tick's limit and hard ceiling, in
+   minutes from that time (PROTOCOL.md, "When a tick ends"):
+   `echo "limit ${AGENT_TICK_MINUTES:-20}, ceiling ${AGENT_TICK_CEILING:-45}"`.
 2. Attach `<repo>` to the session with push access (`add_repo`) and clone it
    once: `git clone --depth 1 https://github.com/<repo>` with a generous
    command timeout (about 10 minutes). Never run a second clone or fetch of
