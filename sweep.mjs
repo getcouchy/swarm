@@ -173,6 +173,13 @@ export async function sweep(gh, { now = Date.now(), limits }) {
       if (!item.pull_request && !item.head) released.add(item.number);
     }
   }
+  // A lock on a closed pull request: it merged under its agent, whose run then died before taking it off.
+  for (const pr of (await gh.closedPulls()).filter((p) => providers(p).length)) {
+    for (const holder of providers(pr)) {
+      await gh.removeLabel(pr.number, AGENT_PREFIX + holder);
+      fixed.push(`${refText(pr.number)}: closed with ${holder}'s lock on; removed.`);
+    }
+  }
   // Doubled locks.
   for (const issue of issues.filter((i) => providers(i).length)) {
     const held = providers(issue);

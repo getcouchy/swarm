@@ -28,9 +28,9 @@ const pull = (number, labels, extra = {}) => ({
 });
 
 /** An in-memory GitHub: issues and pulls by number, with the calls the tools make. */
-function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = {}, events = {}, comments = {}, blockers = {}, blocking = {}, qa = [], closed = [], pushed = {}, required = [], statuses = {}, repo = 'getcouchy/couchy', onAdd } = {}) {
+function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = {}, events = {}, comments = {}, blockers = {}, blocking = {}, qa = [], closed = [], closedPulls = [], pushed = {}, required = [], statuses = {}, repo = 'getcouchy/couchy', onAdd } = {}) {
   const log = [];
-  const find = (n) => [...issues, ...closed, ...pulls].find((i) => i.number === n);
+  const find = (n) => [...issues, ...closed, ...pulls, ...closedPulls].find((i) => i.number === n);
   const has = (i, names) => names.every((n) => i.labels.some((l) => l.name === n));
   return {
     log,
@@ -41,6 +41,7 @@ function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = 
     openIssues: async (labels = []) => issues.filter((i) => i.state === 'open' && has(i, labels)),
     subIssues: async (n) => subIssues[n] ?? [],
     openPulls: async () => pulls,
+    closedPulls: async () => closedPulls,
     issue: async (n) => structuredClone(find(n)),
     addLabel: async (n, name) => {
       log.push(`add ${n} ${name}`);
@@ -339,6 +340,19 @@ test('next: a label is a lock on work in progress, and any agent carries the swa
   gh = fake({ issues: [issue(1, ['couchy-ux/approved', 'swarm/agent/codex']), issue(2, ['couchy-ux/approved', 'swarm/agent/grok'])], pulls: [pull(50, ['swarm/pr', 'swarm/agent/codex'])] });
   assert.deepEqual(await releaseAll(gh, 'codex'), [{ number: 1, type: 'issue', title: 'Issue 1' }, { number: 50, type: 'pull', title: 'PR 50' }]);
   assert.deepEqual(gh.log, ['remove 1 swarm/agent/codex', 'remove 50 swarm/agent/codex']);
+});
+
+test('a lock on a pull request that has merged comes off: at the end of the tick, else by the sweep', async () => {
+  const merged = (n, agent) => pull(n, ['swarm/pr', `swarm/agent/${agent}`], { state: 'closed', merged_at: ago(200) });
+  const gh = fake({ pulls: [pull(50, ['swarm/pr', 'swarm/agent/codex'])], closedPulls: [merged(48, 'codex'), merged(49, 'grok')] });
+  assert.deepEqual((await releaseAll(gh, 'codex')).map((i) => i.number), [50, 48]);
+  assert.deepEqual(gh.log, ['remove 50 swarm/agent/codex', 'remove 48 swarm/agent/codex'], "another agent's lock is its own to take off");
+
+  // Its run died before that: no event says when the lock went on, and none is needed.
+  const { fixed, locks } = await sweep(gh, { now: NOW, limits: LIMITS });
+  assert.ok(gh.log.includes('remove 49 swarm/agent/grok'), gh.log.join());
+  assert.ok(fixed.includes("#49: closed with grok's lock on; removed."), fixed.join());
+  assert.equal(locks.some((l) => l.number === 49), false);
 });
 
 test('sweep: takes off locks that outlived a tick, settles doubled ones, reports the rest', async () => {
