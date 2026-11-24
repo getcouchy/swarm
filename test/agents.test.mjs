@@ -57,7 +57,7 @@ function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = 
     comment: async (n, body) => { log.push(`comment ${n}`); (comments[n] ??= []).push({ id: Math.random(), body, created_at: ago(0), updated_at: ago(0) }); },
     editComment: async (id) => { log.push(`edit comment ${id}`); },
     events: async (n) => events[n] ?? [],
-    reviews: async (n) => reviews[n] ?? [],
+    reviews: async (n) => (reviews[n] ?? []).map(by),
     checks: async (sha) => checks[sha] ?? [],
     commit: async (sha) => ({ commit: { committer: { date: pushed[sha] ?? ago(1) } } }),
     blockers: async (i) => blockers[i.number] ?? [],
@@ -68,6 +68,8 @@ function fake({ issues = [], pulls = [], subIssues = {}, reviews = {}, checks = 
     editIssue: async (n, patch) => { log.push(`edit ${n}`); Object.assign(find(n), patch); },
   };
 }
+// A review as GitHub gives one of an insider's, unless it says otherwise.
+const by = (r) => ({ author_association: 'MEMBER', ...r });
 const LIMITS = { claim: 90, ready: 4, review: 4, fix: 2, hold: 24, heartbeat: 8 };
 
 test('closing keywords', () => {
@@ -126,9 +128,29 @@ test('what makes an issue unclaimable', () => {
   assert.match(whyNotClaimable(issue(10, [], { stage: 'needs-human' }), ctx), /Needs Human/);
 });
 
+test('a verdict in a comment counts as a review; a bare marker does not', async () => {
+  const by = { user: { login: 'couchybot', type: 'User' }, author_association: 'MEMBER' };
+  const fetchImpl = async (url) => ({ ok: true, status: 200, json: async () => (new URL(url).pathname.endsWith('/reviews') ? [] : [
+    { id: 1, body: 'Claimed. <!-- agent: claude-1 -->', created_at: ago(3), ...by },
+    { id: 2, body: 'Looks right. <!-- agent: claude-3 verdict: ok -->', created_at: ago(2), ...by },
+  ]) });
+  const reviews = await client({ token: 't', repo: 'o/r', fetchImpl }).reviews(9);
+  assert.deepEqual(reviews.map((r) => [r.id, r.state, r.submitted_at]), [[2, 'COMMENTED', ago(2)]]);
+  assert.equal(reviewedStatus(pull(9, ['swarm/pr']), reviews).state, 'success');
+});
+
+test("an outsider's marker is not a review", () => {
+  const r = (author_association, user = { login: 'x', type: 'User' }) =>
+    ({ body: '<!-- agent: codex verdict: ok -->', state: 'COMMENTED', submitted_at: ago(1), user, author_association });
+  const counts = (x) => independentReviews(pull(9, ['swarm/pr']), [x]).length;
+  for (const a of ['NONE', 'CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', undefined]) assert.equal(counts(r(a)), 0, String(a));
+  for (const a of ['OWNER', 'MEMBER', 'COLLABORATOR']) assert.equal(counts(r(a)), 1, a);
+  assert.equal(counts(r('NONE', { login: 'couchy-codex[bot]', type: 'Bot' })), 1, "an agent's own App");
+});
+
 test('a review counts when an agent marked it or another account wrote it, never a bot', () => {
   const pr = pull(9, ['swarm/pr']);
-  const r = (body, login = 'owner', type = 'User') => ({ body, state: 'COMMENTED', user: { login, type }, submitted_at: ago(1) });
+  const r = (body, login = 'owner', type = 'User') => ({ body, state: 'COMMENTED', user: { login, type }, submitted_at: ago(1), author_association: type === 'Bot' ? 'NONE' : 'MEMBER' });
   assert.equal(independentReviews(pr, [r('Looks fine <!-- agent: codex -->')]).length, 1, 'an agent with the author\'s name: a fresh session');
   assert.equal(independentReviews(pr, [r('replying in a thread')]).length, 0, 'unmarked, same account');
   assert.equal(independentReviews(pr, [r('nit', 'cubic-dev-ai[bot]', 'Bot')]).length, 0, 'a bot');
@@ -149,7 +171,7 @@ test('a bot login names its agent', () => {
 
 test('changes requested stop counting once the author pushes', () => {
   const pr = pull(9, ['swarm/pr']);
-  const reviews = [{ body: '<!-- agent: grok -->', state: 'CHANGES_REQUESTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(3) }];
+  const reviews = [{ body: '<!-- agent: grok -->', state: 'CHANGES_REQUESTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(3) }].map(by);
   assert.deepEqual(fixReasons(pr, { reviews, pushedAt: ago(5) }), ['changes requested']);
   assert.deepEqual(fixReasons(pr, { reviews, pushedAt: ago(1) }), []);
   assert.deepEqual(
@@ -160,7 +182,7 @@ test('changes requested stop counting once the author pushes', () => {
 
 test('a held PR is not fix work, except for a changes verdict on one held with swarm/hold', () => {
   const checks = [{ name: 'smoke', conclusion: 'failure' }];
-  const reviews = [{ body: '<!-- agent: grok verdict: changes -->', state: 'COMMENTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(1) }];
+  const reviews = [{ body: '<!-- agent: grok verdict: changes -->', state: 'COMMENTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(1) }].map(by);
   const held = (label) => pull(9, ['swarm/pr', 'conflicts-with-main', label]);
   // Waiting on a person: nothing moves until the label comes off.
   assert.deepEqual(fixReasons(held('swarm/needs-human'), { checks, reviews, pushedAt: ago(2) }), []);
@@ -191,7 +213,7 @@ test('next: a label is a lock on work in progress, and any agent carries the swa
   const b = pull(21, ['swarm/pr'], { body: 'Closes #2' });
   const issues = () => [issue(1), issue(2), issue(3), issue(4)];
   const failing = { sha20: [{ name: 'check', conclusion: 'failure' }] };
-  const rev = (v, h = 0) => [{ body: `<!-- agent: grok${v ? ` verdict: ${v}` : ''} -->`, state: 'COMMENTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(h) }];
+  const rev = (v, h = 0) => [{ body: `<!-- agent: grok${v ? ` verdict: ${v}` : ''} -->`, state: 'COMMENTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(h) }].map(by);
 
   // A red PR nobody is on is anyone's to fix, and the fixer locks it.
   let gh = fake({ issues: issues(), pulls: structuredClone([a, b]), checks: failing });
@@ -539,7 +561,7 @@ test('a tick goes on to the next job until its time is spent', async () => {
   assert.deepEqual([job.job, job.pull], ['review', 21]);
 });
 
-const verdict = (v, h = 0) => ({ body: `<!-- agent: codex verdict: ${v} -->`, state: 'COMMENTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(h) });
+const verdict = (v, h = 0) => by({ body: `<!-- agent: codex verdict: ${v} -->`, state: 'COMMENTED', user: { login: 'owner', type: 'User' }, submitted_at: ago(h) });
 
 test('reviewed status: the verdict and the hold labels, posted once', async () => {
   const pr = pull(40, ['swarm/pr']);
