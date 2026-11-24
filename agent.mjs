@@ -40,6 +40,8 @@
 // swarm/needs/* labels ("ios-sim,design"); AGENT_ROLE=focus runs a builder tick
 // (PROTOCOL.md, "Builder ticks"), AGENT_ROLE=task-breakdown a task-breakdown tick ("Task-breakdown ticks"),
 // AGENT_ROLE=architect an architect tick (ARCHITECT.md).
+// AGENT_TICK_MINUTES (20) and AGENT_TICK_CEILING (45) are the tick's limit and
+// ceiling, in minutes (PROTOCOL.md, "When a tick ends").
 // Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy), and
 // the work item tracker's credentials (Linear's: linear.mjs).
 // TICK_EVENTS_FILE, when set, gets one JSON line per command that ran: the
@@ -67,7 +69,7 @@ timeCommand(process.env.TICK_EVENTS_FILE, cmd);
 const can = new Set((process.env.AGENT_CAN ?? '').split(',').map((s) => s.trim()).filter(Boolean));
 const asked = process.env.AGENT_ROLE === 'shape' ? 'task-breakdown' : process.env.AGENT_ROLE; // the old role still works
 const role = ['focus', 'task-breakdown', 'architect'].includes(asked) ? asked : 'all';
-const ceiling = Number(process.env.AGENT_TICK_CEILING || 45);
+const ceiling = Number(process.env.AGENT_TICK_CEILING) || 45;
 // How the agent ran this script, for the `then` commands it prints; a copy run
 // from origin/main is handed the original's path.
 const entry = process.env.SWARM_ENTRY || relative(process.cwd(), fileURLToPath(import.meta.url));
@@ -106,7 +108,7 @@ if (cmd === 'next' && !process.env.AGENT_NO_SYNC) {
 }
 let result;
 try {
-  result = await run(cmd, args, { clients, me, can, role, ceiling, minutes: Number(process.env.AGENT_TICK_MINUTES || 20), entry, checkout, swarm: toolsCommit() });
+  result = await run(cmd, args, { clients, me, can, role, ceiling, minutes: Number(process.env.AGENT_TICK_MINUTES) || 20, entry, checkout, swarm: toolsCommit() });
 } catch (e) {
   if (!(e instanceof UsageError)) throw e;
   console.error(e.message);

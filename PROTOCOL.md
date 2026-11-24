@@ -281,11 +281,12 @@ the top and do the next, until the tick ends (see "When a tick ends"):
 
 ### When a tick ends
 
-A tick has two times, both counted from when it started:
+A tick has two times, in minutes counted from when it started. Each is its
+environment variable's value where that is set, whatever the default:
 
-- **The limit, 20 minutes** (`AGENT_TICK_MINUTES`): until then you keep taking
-  jobs. Finishing a job is never a reason to stop.
-- **The ceiling, 45 minutes** (`AGENT_TICK_CEILING`): the hard stop. By then
+- **The limit** (`AGENT_TICK_MINUTES`, 20 by default): until then you keep
+  taking jobs. Finishing a job is never a reason to stop.
+- **The ceiling** (`AGENT_TICK_CEILING`, 45 by default): the hard stop. By then
   you have wrapped up and ended, whatever you were doing.
 
 So a tick ends when it is past the limit with no job under way, when nothing is
@@ -293,8 +294,8 @@ left to do (step 6), or at the ceiling.
 
 **Before you start a job, judge whether it fits.** Estimate how long it will
 take you from start to pushed-and-PR-updated, and start it only if that ends
-before the ceiling. A review usually fits; a large work item started at
-minute 18 does not.
+before the ceiling. A review usually fits; a large work item started
+late does not.
 
 - If the job at the top of the list doesn't fit, take the next one down that
   does. If none fits, end the tick. Pass over a job because it won't fit the
