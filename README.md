@@ -62,7 +62,8 @@ are part of it; a pull request also with `workItem`, the key its body closes or
 is part of), and the GitHub requests left on the token. A regular tick's `next`
 and `more` lines also carry `queue`, the items it could have started (its size
 and the first 20, best first, with priority and how many open items each
-unblocks), and `rank`, where the job offered stood in it; every line has,
+unblocks), and `rank`, where the job offered stood in it; a `more` line has
+`passed`, what the agent passed over this tick; every line has,
 when it is known, `swarm`, the commit of these tools, and, once Linear has said,
 `trackerComplexityRemaining`, what is left of its complexity budget. Every command
 also leaves a `start` line as it begins and an `end` line, with its exit code and

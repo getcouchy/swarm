@@ -297,7 +297,9 @@ before the ceiling. A review usually fits; a large work item started at
 minute 18 does not.
 
 - If the job at the top of the list doesn't fit, take the next one down that
-  does. If none fits, end the tick.
+  does. If none fits, end the tick. Pass over a job because it won't fit the
+  time left, or because nothing you can do now moves it (what it needs is held
+  or down): never because it is hard or dull.
 - A work item too big for a whole tick is never a reason to skip it forever.
   At the start of a tick, take it, split it into sub-issues (see "Splitting a
   work item") and build the first that fits; the next tick builds the next.
@@ -334,6 +336,12 @@ is done. It never locks: when it offers a job with a `lock` number and you
 judge that it fits, run `claim <number>` yourself. Pass `more`
 `--wrote=<PR numbers>` for the PRs you opened or pushed to this tick, and run
 `finish` when the tick ends without a last `more`.
+
+To pass over a job, run the command in its `pass` field instead of `then`:
+`more` with the job added to `--skip=COU-12,57`, which answers with the next one
+down and takes your label off the one you passed over. It is passed over for
+this tick only, so keep the list on every `more` that follows (each job's
+commands carry it). Turning auto-merge on or off has no `pass`: it takes a moment.
 
 With both, one command does the choosing and the claiming and prints
 the job as JSON, with the `repo` it is in. A work item's job names it by key
