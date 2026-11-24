@@ -75,6 +75,10 @@ const LIMITS = { claim: 90, ready: 4, review: 4, fix: 2, hold: 24, heartbeat: 8 
 test('closing keywords', () => {
   assert.deepEqual(closingIssues('Closes #12.\n\nAlso fixes #3, #4 and resolves: #5. See #99.'), [12, 3, 4, 5]);
   assert.deepEqual(closingIssues('Discloses #7'), []);
+  // As agents often write it, the key inside a link.
+  const link = (key) => `[${key}](https://linear.app/couchy/issue/${key}/a-title)`;
+  assert.deepEqual(closingIssues(`Closes ${link('COU-480')} and ${link('COU-481')} (part of ${link('COU-447')}).`), ['COU-480', 'COU-481']);
+  assert.deepEqual([...linkedPulls([{ number: 1, body: `Part of ${link('COU-447')}: the first slice.` }]).keys()], ['COU-447']);
   assert.deepEqual(closingIssues(null), []);
 });
 
