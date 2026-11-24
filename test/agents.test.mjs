@@ -1115,6 +1115,75 @@ test('TICK_EVENTS_FILE: next writes the job it offered, with its title, and what
   assert.match(line.skipped[0].why, /needs design/);
 });
 
+test('more --skip passes over a job, whatever its kind, and offers the next', async () => {
+  const started = `--started=${new Date().toISOString()}`;
+  const red = (...n) => Object.fromEntries(n.map((i) => [`sha${i}`, [{ name: 'check', conclusion: 'failure' }]]));
+  const offer = async (clients, skip) => {
+    const { out, line } = await tickEvent(clients, 'more', [started, ...(skip ? [`--skip=${skip}`] : [])]);
+    return { out, line, is: [out.job, out.pull ?? out.issue] };
+  };
+
+  // A fix; the next one, then a review, then a draft, then new work.
+  const all = () => [fake({
+    issues: [issue('COU-1'), issue('COU-2'), issue('COU-9')], checks: red(20, 21),
+    pulls: [pull(20, ['swarm/pr']), pull(21, ['swarm/pr']), pull(30, ['swarm/pr']), pull(40, ['swarm/pr'], { draft: true, body: 'Closes COU-9' })],
+  })];
+  assert.deepEqual((await offer(all())).is, ['fix', 20]);
+  assert.deepEqual((await offer(all(), '20')).is, ['fix', 21]);
+  assert.deepEqual((await offer(all(), '20,21')).is, ['review', 30]);
+  assert.deepEqual((await offer(all(), '20,21,30')).is, ['implement', 40]);
+  assert.deepEqual((await offer(all(), '20,21,30,40')).is, ['implement', 'COU-1']);
+  assert.deepEqual((await offer(all(), '20,21,30,COU-9')).is, ['implement', 'COU-1'], "a draft goes by its work item's key too");
+  assert.deepEqual((await offer(all(), '20,21,30,40,COU-1')).is, ['implement', 'COU-2']);
+  const { out } = await offer(all(), '20,21,30,40,COU-1,COU-2');
+  assert.deepEqual([out.job, out.why], ['none', 'getcouchy/couchy: nothing in focus is claimable but what you passed over']);
+  assert.deepEqual(out.repos[0].skipped.map((i) => [i.issue, i.why]), [['COU-1', 'you passed over it'], ['COU-2', 'you passed over it'], ['COU-9', 'PR #40 is already open for it']]);
+
+  // A lock of mine that couldn't come off doesn't bring back what I passed over.
+  const stuck = fake({ issues: [issue('COU-1', ['swarm/focus', 'swarm/agent/codex']), issue('COU-2')] });
+  assert.equal((await nextAcross([stuck], { me: 'codex', doClaim: false, skip: new Set(['COU-1']) })).issue, 'COU-2');
+
+  // An older key still names it, in a draft's body too, and a number is a pull request in its own repository.
+  assert.deepEqual((await offer([fake({ issues: [issue('COU-1', undefined, { aliases: ['COUCHYUX-7'] }), issue('COU-2')] })], 'COUCHYUX-7')).is, ['implement', 'COU-2']);
+  assert.equal((await offer([fake({ issues: [issue('COU-9', undefined, { aliases: ['COUCHYUX-9'] })], pulls: [pull(40, ['swarm/pr'], { draft: true, body: 'Closes COUCHYUX-9' })] })], 'COU-9')).out.job, 'none');
+  const two = () => [fake({ pulls: [pull(13, ['swarm/pr'])] }), fake({ repo: 'getcouchy/couchy-agent', pulls: [pull(13, ['swarm/pr'])] })];
+  assert.equal((await offer(two(), '13')).out.repo, 'getcouchy/couchy-agent');
+  assert.equal((await offer(two(), 'getcouchy/couchy-agent#13')).out.repo, 'getcouchy/couchy');
+
+  // Auto-merge is put right whatever was passed over: it takes a moment, and leaving it on can merge held work.
+  const held = fake({ pulls: [pull(50, ['swarm/pr', 'swarm/hold'], { auto_merge: {} })] });
+  assert.deepEqual((await offer([held], '50')).is, ['hold', 50]);
+  await assert.rejects(offer(all(), 'nonsense'), UsageError);
+});
+
+test('a job says how to pass over it, and the line says what was', async () => {
+  const gh = () => Object.assign(fake({ issues: [issue('COU-1'), issue('COU-2')] }), { setStage: async () => {} });
+  const { out: first } = await tickEvent([gh()], 'next');
+  assert.match(first.pass, /^node agent\.mjs more --started=\S+Z --skip=COU-1$/);
+  assert.equal(first.then, first.pass.replace(' --skip=COU-1', ''));
+
+  const started = new Date().toISOString();
+  const { out, line } = await tickEvent([gh()], 'more', [`--started=${started}`, '--wrote=57', '--skip=COU-1,20']);
+  assert.equal(out.then, `node agent.mjs more --started=${started} --wrote=57 --skip=COU-1,20`);
+  assert.equal(out.pass, `${out.then},COU-2`);
+  assert.deepEqual([line.passed, line.number, line.rank, line.queue.size], [['COU-1', 'getcouchy/couchy#20'], 2, 2, 2], 'the queue still has what was passed over');
+  assert.ok(!('passed' in (await tickEvent([gh()], 'more', [`--started=${started}`])).line));
+  assert.match((await tickEvent([fake(), fake({ repo: 'o/r', issues: [issue('COU-1')] })], 'more', [`--started=${started}`])).out.fit, /run claim COU-1 first/);
+  assert.match((await tickEvent([fake(), fake({ repo: 'o/r', pulls: [pull(13, ['swarm/pr'])] })], 'more', [`--started=${started}`])).out.pass, /--skip=o\/r#13$/);
+
+  // What takes a moment isn't passed over.
+  const held = fake({ pulls: [pull(50, ['swarm/pr', 'swarm/hold'], { auto_merge: {} })] });
+  assert.ok(!('pass' in (await tickEvent([held], 'next')).out));
+});
+
+test('more --skip passes over task-breakdown work too', async () => {
+  const wanted = (key) => issue(key, ['swarm/task-breakdown']);
+  const opts = { me: 'claude-task-breakdown-1', role: 'task-breakdown', doClaim: false };
+  assert.equal((await nextAcross([fake({ issues: [wanted('COU-1'), wanted('COU-2')] })], { ...opts, skip: new Set(['COU-1']) })).issue, 'COU-2');
+  const held = issue('COU-1', ['swarm/task-breakdown', 'swarm/agent/claude-task-breakdown-1']);
+  assert.equal((await nextAcross([fake({ issues: [held, wanted('COU-2')] })], { ...opts, skip: new Set(['COU-1']) })).issue, 'COU-2');
+});
+
 test('TICK_EVENTS_FILE: more and finish write what they released, with titles', async () => {
   const home = 'getcouchy/couchy';
   const mine = () => fake({ issues: [issue(1, ['couchy-ux/approved', 'swarm/agent/codex'])], pulls: [pull(50, ['swarm/pr', 'swarm/agent/codex'])] });

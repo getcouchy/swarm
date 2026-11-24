@@ -13,9 +13,10 @@
 // (an old clone, or the branch of a swarm PR), origin/main's copy is run
 // instead, from a temporary directory.
 //   node ../swarm/agent.mjs next --look      the same, without claiming
-//   node ../swarm/agent.mjs more --started=<ISO time> [--wrote=12,15]
+//   node ../swarm/agent.mjs more --started=<ISO time> [--wrote=12,15] [--skip=COUCHYUX-12,57]
 //                                                after any job: the next one, while the tick has time left;
-//                                                --wrote lists the PRs this session wrote, which it won't review
+//                                                --wrote lists the PRs this session wrote, which it won't review;
+//                                                --skip, the work items and PRs it passed over, not to offer again
 //   node ../swarm/agent.mjs finish           the end of the tick: take my lock off everything
 //   node ../swarm/agent.mjs claim COUCHYUX-12   lock one work item (by key) or PR (by number)
 //   node ../swarm/agent.mjs release COUCHYUX-12 "why"   unlock it, with a comment
