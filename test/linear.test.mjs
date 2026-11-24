@@ -446,6 +446,7 @@ test('events: a work item carries its title from what the tracker read, a PR its
   const pulls = [{ number: 57, title: 'Fix login', labels: [{ name: 'swarm/pr' }, { name: 'swarm/agent/codex' }] }];
   const gh = {
     repo: 'getcouchy/couchy',
+    closedPulls: async () => [],
     rateLimitRemaining: () => 10,
     openPulls: async () => pulls,
     requiredChecks: async () => [],
