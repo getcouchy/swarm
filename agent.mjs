@@ -53,6 +53,7 @@ import { reposFromEnv } from './lib/github.mjs';
 import { providerFromEnv, tracker } from './lib/workitems.mjs';
 import { syncHere, toolsCommit, toolsFromMain } from './lib/preflight.mjs';
 import { isValidProvider } from './lib/rules.mjs';
+import { timeCommand } from './lib/timing.mjs';
 
 const [cmd, ...args] = process.argv.slice(2);
 const me = process.env.AGENT_NAME || process.env.AGENT_PROVIDER; // the old variable still works
@@ -60,6 +61,8 @@ if (!isValidProvider(me)) {
   console.error('Set AGENT_NAME to your name: lower-case letters, digits and hyphens (codex, grok, claude-2).');
   process.exit(2);
 }
+// Before anything that reaches the network: the fetch below can hang too.
+timeCommand(process.env.TICK_EVENTS_FILE, cmd);
 const can = new Set((process.env.AGENT_CAN ?? '').split(',').map((s) => s.trim()).filter(Boolean));
 const asked = process.env.AGENT_ROLE === 'shape' ? 'task-breakdown' : process.env.AGENT_ROLE; // the old role still works
 const role = ['focus', 'task-breakdown', 'architect'].includes(asked) ? asked : 'all';

@@ -788,3 +788,14 @@ test('split: the recorded queue leaves out what next would not offer', async () 
   mine.labels.push({ id: 'l-mine', name: 'codex', parent: { id: 'g-agent', name: 'swarm-agent' } });
   assert.deepEqual(await keys(mine), ['COU-1']);
 });
+
+test("linear: what is left of the complexity budget is read from its answers", async () => {
+  const left = { 'x-ratelimit-complexity-remaining': '184250' };
+  const c = linearClient({
+    auth: { get: async () => 'k' }, team: 'COU', repo: 'o/r',
+    fetchImpl: async () => ({ ok: true, status: 200, headers: { get: (name) => left[name] ?? null }, json: async () => ({ data: { issueUpdate: null } }) }),
+  });
+  assert.equal(c.complexityRemaining(), null);
+  await c.editComment('c1', 'x');
+  assert.equal(c.complexityRemaining(), 184250);
+});
