@@ -24,11 +24,11 @@ import { pathToFileURL } from 'node:url';
 import { fromEnv } from './lib/github.mjs';
 import { pushRun } from './lib/metrics.mjs';
 import { providerFromEnv, tracker } from './lib/workitems.mjs';
-import { focusOf } from './lib/tick.mjs';
+import { finishedParts, focusOf } from './lib/tick.mjs';
 import {
   AGENT_PREFIX, BLOCKED, CONFLICT, DESK, HANDS_OFF, HOLD, REVIEW_ONLY, SWARM_PR, NEEDS_HUMAN, REVIEWED, agentOf, canonical, claimWinner, closingIssues, fixReasons,
   handsOff, heartbeatId, isReady, isReviewOnly, isReviewable, isSwarmPull, pullState, freeFor, lockLapsed, hoursSince, lastVerdict, mergeHeld, mergeReady, needsReview, labelNames, linkedPulls,
-  blockGraph, downstream, needsQA, openParents, partOfIssues, providers, refText, whyNotClaimable, FAILED, requestKind, whyNotBreakdown,
+  blockGraph, downstream, linkedTo, needsQA, openParents, partOfIssues, providers, refText, whyNotClaimable, FAILED, requestKind, whyNotBreakdown,
 } from './lib/rules.mjs';
 
 // The labels the swarm puts on pull requests. GitHub refuses a label
@@ -383,8 +383,9 @@ export function readLinked(body) {
  * to Review when it needs the owner's QA (rules.mjs, needsQA), else to Done. Each
  * merge moves its item once (an `item>pr` pair beside the `item<pr` links), so
  * an item the owner sends back to Todo stays there. A PR may name an item by
- * its key or by the GitHub issue it was copied from. Returns the lines to log
- * and the pairs recorded so far.
+ * its key or by the GitHub issue it was copied from. An item split into
+ * sub-issues follows those instead (finishSplit). Returns the lines to log and
+ * the pairs recorded so far.
  */
 export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) {
   if (!gh.findIssue) return { lines: [], linked: [] };
@@ -413,13 +414,40 @@ export async function followPulls(gh, { pulls, stored = '', now = Date.now() }) 
       const item = await gh.findIssue(ref);
       const moved = item && `${item.number}>${pr.number}`;
       if (!item || item.state !== 'open' || seen.has(moved)) continue;
-      const stage = await gh.setStage(item.number, needsQA(item) ? 'qa' : 'completed');
+      const stage = await gh.setStage(item.number, needsQA(item, await gh.openIssues()) ? 'qa' : 'completed');
       await link(item, pr);
       seen.add(moved);
       lines.push(`${item.number} is ${stage === 'qa' ? 'in Review' : 'Done'}: PR #${pr.number} merged.`);
     }
   }
+  lines.push(...await finishSplit(gh, { pulls, seen }));
   return { lines, linked: [...seen].slice(-1000) };
+}
+
+/**
+ * An item In Progress whose sub-issues are all closed, one of them at least
+ * not Canceled, goes to Review or Done like one whose PR merged, unless an
+ * agent or an open PR is still on it. Once for the same sub-issues (an
+ * `item>part+part` entry in `seen`), so one the owner sends back stays until
+ * it has new ones. It doesn't matter who closed the last: Linear's own GitHub
+ * integration usually does, before the sweep sees the merge.
+ */
+async function finishSplit(gh, { pulls, seen }) {
+  const lines = [];
+  const linked = linkedPulls(pulls);
+  const open = await gh.openIssues();
+  for (const item of open.filter((i) => i.stage === 'started' && !handsOff(i) && !providers(i).length && !linkedTo(linked, i).length)) {
+    const parts = await finishedParts(gh, item);
+    if (!parts) continue;
+    const done = `${item.number}>${parts.map((p) => p.number).sort().join('+')}`;
+    if (!seen.has(done)) {
+      const stage = await gh.setStage(item.number, needsQA(item, open) ? 'qa' : 'completed');
+      lines.push(`${item.number} is ${stage === 'qa' ? 'in Review' : 'Done'}: its sub-issues are done.`);
+    }
+    seen.delete(done); // to the end: `linked` keeps the newest entries
+    seen.add(done);
+  }
+  return lines;
 }
 
 const COUNTERS = /<!-- swarm-counters: (.*?) -->/s;

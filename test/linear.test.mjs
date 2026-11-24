@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { DEFAULT_TEAMS, appToken, linearClient, linearPlace, protocolName } from '../lib/linear.mjs';
 import { LabelGroupTaken, PROVIDER_METHODS, assertProvider, currentKey, isKey, parsePairs, tracker } from '../lib/workitems.mjs';
 import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from '../lib/rules.mjs';
-import { claim, focusOf, next } from '../lib/tick.mjs';
+import { claim, focusOf, next, queueOf } from '../lib/tick.mjs';
 import { findDesk, moveHandedOff, followPulls, readLinked, writeDesk } from '../sweep.mjs';
 import { run } from '../lib/commands.mjs';
 
@@ -662,4 +662,129 @@ test('Needs Human: without that state the label stays, and the sweep says why', 
   const [line] = await moveHandedOff(items, await items.openIssues());
   assert.match(line, /^COU-1 and the rest keep `swarm\/needs-human`: Linear team COU has no needs-human state/);
   assert.deepEqual([fake.issues[0].stateId, fake.issues[0].labelIds], ['s-todo', ['l-human']]);
+});
+
+const SPLIT_LABELS = [{ id: 'l-app', name: 'area/app' }, { id: 'l-api', name: 'area/api' }, { id: 'l-qa', name: 'qa', parent: { id: 'g-swarm', name: 'swarm' } }, { id: 'l-lock', name: 'claude-1', parent: { id: 'g-agent', name: 'swarm-agent' } }];
+const splitItem = (parent, ...parts) => fakeLinear({
+  states: [...STATES, QA_STATE], labels: SPLIT_LABELS,
+  issues: [item(1, { stateId: 's-doing', labelIds: ['l-app'], sprint: true, ...parent }), ...parts.map((p, i) => item(i + 2, { parentId: 'i1', labelIds: ['l-app'], sprint: true, ...p }))],
+});
+const mergedPull = (number, body) => ({ number, title: `PR ${number}`, body, merged_at: '2026-11-16T10:00:00Z', html_url: `https://github.com/getcouchy/couchy/pull/${number}` });
+const follow = (fake, { closed = [], pulls = [], linked = [] } = {}) => followPulls(t({ repo: 'getcouchy/couchy', closedPulls: async () => closed }, client(fake)), {
+  pulls, stored: `<!-- swarm-linked: ${JSON.stringify(linked)} -->`, now: Date.parse('2026-11-16T12:00:00Z'),
+});
+const statesOf = (fake) => fake.issues.map((i) => i.stateId);
+
+test('split: a merged part is Done, though its labels would send it to Review; swarm/qa on it still does', async () => {
+  const fake = splitItem({}, { stateId: 's-doing' }, { stateId: 's-doing', labelIds: ['l-app', 'l-qa'] }, {});
+  const { lines } = await follow(fake, { closed: [mergedPull(60, 'Closes COU-2 (part of COU-1)'), mergedPull(61, 'Closes COU-3 (part of COU-1)')] });
+  assert.deepEqual(lines, ['COU-2 is Done: PR #60 merged.', 'COU-3 is in Review: PR #61 merged.']);
+  assert.deepEqual(statesOf(fake), ['s-doing', 's-done', 's-qa', 's-todo'], 'a part is left, so the item stays');
+});
+
+test('split: sub-issues of an item that is not being built are the owner\'s grouping, and go to Review by their own labels', async () => {
+  const fake = splitItem({ stateId: 's-backlog' }, { stateId: 's-doing' });
+  await follow(fake, { closed: [mergedPull(60, 'Closes COU-2')] });
+  assert.deepEqual(statesOf(fake), ['s-backlog', 's-qa']);
+});
+
+test('split: after its last part the item goes to Review or Done by its own labels, whoever closed the part', async () => {
+  const ui = splitItem({}, { stateId: 's-done' }, { stateId: 's-doing' });
+  const first = await follow(ui, { closed: [mergedPull(60, 'Closes COU-3 (part of COU-1)')] });
+  assert.deepEqual(first.lines, ['COU-3 is Done: PR #60 merged.', 'COU-1 is in Review: its sub-issues are done.']);
+  assert.deepEqual(statesOf(ui), ['s-qa', 's-done', 's-done']);
+  // Linear's own GitHub integration closed both parts before this run; one was dropped.
+  const api = splitItem({ labelIds: ['l-api'] }, { stateId: 's-done' }, { stateId: 's-cancel' });
+  assert.deepEqual((await follow(api)).lines, ['COU-1 is Done: its sub-issues are done.']);
+  assert.deepEqual(statesOf(api), ['s-done', 's-done', 's-cancel']);
+});
+
+test('split: an item the owner sends back stays, even In Progress again, until new parts are done', async () => {
+  const fake = splitItem({}, { stateId: 's-done' });
+  const { linked } = await follow(fake);
+  assert.equal(fake.issues[0].stateId, 's-qa');
+  for (const stateId of ['s-todo', 's-doing']) {
+    fake.issues[0].stateId = stateId;
+    assert.deepEqual((await follow(fake, { linked })).lines, []);
+    assert.equal(fake.issues[0].stateId, stateId);
+  }
+  fake.issues.push(item(3, { parentId: 'i1', stateId: 's-done' }));
+  assert.deepEqual((await follow(fake, { linked })).lines, ['COU-1 is in Review: its sub-issues are done.']);
+});
+
+test('split: the item waits while a part is open in any state, an agent holds it, a PR for it is open, or it is not In Progress', async () => {
+  const open = { number: 70, title: 'More', body: 'Part of COU-1', html_url: 'https://github.com/x/70' };
+  for (const [parent, parts, pulls] of [
+    [{}, [{ stateId: 's-done' }, { stateId: 's-backlog' }], []],
+    [{}, [{ stateId: 's-done' }, { stateId: 's-human' }], []],
+    [{ labelIds: ['l-app', 'l-lock'] }, [{ stateId: 's-done' }], []],
+    [{}, [{ stateId: 's-done' }], [open]],
+    [{ stateId: 's-todo' }, [{ stateId: 's-done' }], []],
+    [{}, [{ stateId: 's-cancel' }], []],
+    [{}, [], []],
+  ]) {
+    const fake = splitItem(parent, ...parts);
+    const before = fake.issues[0].stateId;
+    assert.deepEqual((await follow(fake, { pulls })).lines, []);
+    assert.equal(fake.issues[0].stateId, before);
+  }
+});
+
+test('split: a part in another repository keeps the item open', async () => {
+  const fake = splitItem({}, { stateId: 's-done' }, { labelIds: ['l-agent'] });
+  fake.labels.push({ id: 'l-agent', name: 'couchy-agent', parent: { id: 'g-repo', name: 'repo' } });
+  assert.deepEqual((await follow(fake)).lines, []);
+});
+
+const tickOn = (fake, gh = {}) => t({ repo: 'getcouchy/couchy', openPulls: async () => [], requiredChecks: async () => [], pull: async () => null, ...gh }, client(fake));
+
+test('split: the job for a part names the item it is part of; the item itself is not offered', async () => {
+  const fake = splitItem({}, { stateId: 's-done' }, {});
+  const job = await next(tickOn(fake), { me: 'codex', doClaim: false });
+  assert.equal(job.issue, 'COU-3');
+  assert.deepEqual([job.partOf.issue, job.partOf.title], ['COU-1', 'Item 1']);
+  assert.match(job.partOf.how, /show COU-1.*Closes COU-3 \(part of COU-1\)/);
+  const draft = { number: 70, title: 'D', draft: true, labels: [{ name: 'swarm/pr' }], body: 'Closes COU-3 (part of COU-1)', head: { sha: 's', ref: 'b' }, user: { login: 'o' }, created_at: 'x' };
+  const resumed = await next(tickOn(fake, { openPulls: async () => [draft], checks: async () => [], reviews: async () => [], commit: async () => ({ commit: { committer: { date: 'x' } } }) }), { me: 'codex', doClaim: false });
+  assert.deepEqual([resumed.pull, resumed.issue, resumed.partOf.issue], [70, 'COU-3', 'COU-1']);
+  assert.equal((await next(tickOn(fakeLinear({ issues: [item(1, { sprint: true })] })), { me: 'codex', doClaim: false })).partOf, undefined);
+});
+
+test('split: an item whose parts are done is the sweep\'s to move, not an agent\'s to take, until the owner sends it back', async () => {
+  const fake = splitItem({}, { stateId: 's-done' });
+  const done = await next(tickOn(fake), { me: 'codex', doClaim: false });
+  assert.equal(done.job, 'none');
+  assert.match(done.skipped[0].why, /sub-issues are done/);
+  // Back from Review: the parts' PRs shipped it, and the owner's comment says what failed.
+  fake.issues[0].stateId = 's-todo';
+  await client(fake).addLink('COU-1', 'https://github.com/getcouchy/couchy/pull/60', 'PR #60');
+  fake.comments.i1 = [{ id: 'c1', body: 'Criterion 2 failed.', createdAt: '2026-11-18T10:00:00Z', updatedAt: 'x' }];
+  const gh = { pull: async () => mergedPull(60, 'Closes COU-2 (part of COU-1)') };
+  for (const stateId of ['s-todo', 's-doing']) {
+    fake.issues[0].stateId = stateId;
+    const job = await next(tickOn(fake, gh), { me: 'codex', doClaim: false });
+    assert.equal(job.issue, 'COU-1');
+    assert.deepEqual([job.returned.pulls.map((p) => p.pull), job.returned.feedback.map((f) => f.text)], [[60], ['Criterion 2 failed.']]);
+  }
+});
+
+test('split: with every part Canceled the item is an agent\'s to take; with one the owner keeps, it is not', async () => {
+  const dropped = await next(tickOn(splitItem({}, { stateId: 's-cancel' })), { me: 'codex', doClaim: false });
+  assert.equal(dropped.issue, 'COU-1', 'neither the sweep nor a part would move it on');
+  const kept = splitItem({}, { stateId: 's-done' }, { labelIds: ['l-off'] });
+  kept.labels.push({ id: 'l-off', name: 'hands-off', parent: { id: 'g-swarm', name: 'swarm' } });
+  assert.equal((await next(tickOn(kept), { me: 'codex', doClaim: false })).job, 'none');
+});
+
+test('split: the recorded queue leaves out what next would not offer', async () => {
+  const keys = async (fake) => (await queueOf([tickOn(fake)], { me: 'codex' })).map((i) => i.key);
+  assert.deepEqual(await keys(splitItem({}, { stateId: 's-done' })), [], 'its parts are done');
+  const kept = splitItem({}, { stateId: 's-done' }, { labelIds: ['l-off'] });
+  kept.labels.push({ id: 'l-off', name: 'hands-off', parent: { id: 'g-swarm', name: 'swarm' } });
+  assert.deepEqual(await keys(kept), [], 'the owner keeps a part');
+  assert.deepEqual(await keys(splitItem({}, { stateId: 's-done' }, {})), ['COU-3']);
+  // Just claimed: it was offered, so it is in the record.
+  const mine = splitItem({ labelIds: ['l-mine'] }, { stateId: 's-done' });
+  mine.labels.push({ id: 'l-mine', name: 'codex', parent: { id: 'g-agent', name: 'swarm-agent' } });
+  assert.deepEqual(await keys(mine), ['COU-1']);
 });

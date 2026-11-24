@@ -795,6 +795,9 @@ test('focus: agents start only what is in focus, highest priority first, then wh
   const f = await focusOf(fake({ issues: open, subIssues: { 1412: [30] }, blockers: { 1412: ['#31'], 30: [32] } }), open);
   assert.deepEqual([1412, 30, 31, 32].map((n) => f.of(issue(n))), [1412, 1412, 1412, 1412]);
   assert.deepEqual([1300, 1189, 5].map((n) => f.of(open.find((i) => i.number === n))), [null, null, null], 'named in a description, or naming the sprint item');
+  // What a sprint item waits on may have been split: its sub-issues are what can be built.
+  const split = await focusOf(fake({ issues: open, subIssues: { 31: [32] }, blockers: { 1412: ['#31'] } }), open);
+  assert.equal(split.of(issue(32)), 1412);
   const viaLink = await next(fake({ issues: [issue(3, ['couchy-ux/approved']), issue(1412, ['swarm/focus'], { stage: 'backlog' }), issue(30, ['couchy-ux/approved'])], subIssues: { 1412: [30] } }), { me: 'codex' });
   assert.deepEqual([viaLink.issue, viaLink.focus], [30, 1412]);
 
@@ -842,6 +845,20 @@ test('focus: agents start only what is in focus, highest priority first, then wh
   // Equal on both: the order they came in.
   job = await ranked([issue(41), issue(40)]);
   assert.equal(job.issue, 41);
+
+  // A part of an item being built takes its parent's place: what waits on the parent, then the parent's age.
+  const parts = (extra = {}) => [
+    issue(50, undefined, { id: 'i50', stage: 'started', created_at: ago(300) }),
+    issue(51, undefined, { created_at: ago(200) }),
+    issue(52, undefined, { parent: 'i50', created_at: ago(1) }),
+    issue(53, ['couchy-ux/approved'], { body: 'Blocked by #50.', stage: 'backlog' }),
+    issue(54, ['couchy-ux/approved'], { body: 'Blocked by #51.', stage: 'backlog' }),
+    ...extra.more ?? [],
+  ];
+  job = await ranked(parts());
+  assert.equal(job.issue, 52, 'one item waits on each, and its parent is older than #51');
+  job = await ranked(parts({ more: [issue(55, ['couchy-ux/approved'], { body: 'Blocked by #51.', stage: 'backlog' })] }));
+  assert.equal(job.issue, 51, 'more waits on #51');
 
   // A draft for work outside focus is not carried on; one in focus is.
   const draft = (n) => pull(70, ['swarm/pr'], { draft: true, body: `Part of #${n}`, head: { sha: 'sha70', ref: `codex/${n}` } });

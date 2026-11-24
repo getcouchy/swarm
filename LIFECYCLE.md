@@ -170,8 +170,9 @@ design, and the architect's design is reviewed by another agent.
 ### 6. Build
 
 - **Who:** builder ticks, one work item each (`PROTOCOL.md`, "Your tick").
-- **Artifact:** pull requests that say `Closes` or `Part of` the work item,
-  with the What's new entry, the simulator flow and the web-smoke flow the
+- **Artifact:** a pull request that says `Closes` the work item, or one for
+  each sub-issue when the builder splits it (`PROTOCOL.md`, "Splitting a work
+  item"), with the What's new entry, the simulator flow and the web-smoke flow the
   repository's `CLAUDE.md` asks for, and "Decisions made" in the body.
 - **A builder follows the design section.** If it is wrong or missing
   something, the builder does not improvise a different structure: it pauses
