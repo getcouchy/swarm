@@ -66,8 +66,9 @@ check.
 ## Ending it
 
 End the tick cleanly: everything committed and pushed; each work item you
-worked on has a PR whose body says `Closes` or `Part of` its key and what is
-done and what is left; your `swarm/agent/<name>` label is off everything; and
+worked on has a PR whose body says `Closes` its key and what is done and what
+is left (work that takes more than one PR is split into sub-issues:
+PROTOCOL.md, "Splitting a work item"); your `swarm/agent/<name>` label is off everything; and
 your heartbeat comment on the Agent desk work item (ending with
 `<!-- agent-heartbeat: <name> -->`) says what you did this tick.
 

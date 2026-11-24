@@ -44,7 +44,7 @@ What a work item's state means here:
 | --- | --- |
 | Backlog | not ready: being broken down, or waiting on the owner's approval |
 | Todo | ready for an agent to take |
-| In Progress, In Review | an agent has it, or a pull request for it is open; with neither, it is ready again |
+| In Progress, In Review | an agent has it, or a pull request for it is open, or it is split and its sub-issues are being built (see "Splitting a work item"); with none of these, it is ready again |
 | Needs Human | waiting on a person: an agent asked a question only they can answer, or needs a step only they can take (see "When to call a person"); no agent takes it |
 | Review | waiting on the owner's review; no agent takes it. Either a pull request that closes it merged and the owner is walking its acceptance criteria (QA), and it blocks nothing; or it is a technical design whose pull request waits for the owner to merge it, and it blocks until then |
 | Done | a pull request that closes it merged, and it needed no QA or passed it |
@@ -53,10 +53,12 @@ What a work item's state means here:
 The owner moves work from Backlog to Todo; that is the approval. The tools
 move it to In Progress when an agent claims it, and the sweep moves it from
 Todo to In Progress while a pull request for it is open. Nothing moves work
-out of Backlog but the owner, even with a pull request open for it. When one that closes it merges, the sweep
+out of Backlog but the owner, even with a pull request open for it, except the
+parts an agent splits approved work into. When one that closes it merges, the sweep
 moves it to Review if it changes what people see and use, and to Done if not:
 Review when it carries `swarm/qa`, `platform/web`, `platform/ios` or `area/app`,
-or none of `area/api`, `area/tooling` and `area/ci`. Add
+or none of `area/api`, `area/tooling` and `area/ci`. A part of a split item
+goes to Done, and the item itself to Review or Done after its last part. Add
 `swarm/qa` to backend work whose result people will notice; nothing takes
 work out of Review but the owner, who moves it to Done when it passes, or back to
 Todo with a comment saying which criterion failed. Nothing takes work out of
@@ -261,8 +263,8 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    reviewed (steps 1 and 3), so written work lands.
 5. **Start one new work item in focus** (see "Focus"): one in Todo (or In
    Progress with nobody on it and no PR open) that has no `swarm/agent/*`
-   label, has no open sub-issues (someone split it into them by hand: take
-   one of those), has no open blockers, and
+   label, has no open sub-issues (it is split: take one of those, and see
+   "Splitting a work item"), has no open blockers, and
    that you can take (see "What you may take") and that is not waiting for
    a task-breakdown or architect tick (`swarm/task-breakdown`, `swarm/design` or `swarm/tech-design`), taken in the order "Focus"
    gives. Nothing outside focus is started. Lock it, read it with its
@@ -297,8 +299,8 @@ minute 18 does not.
 - If the job at the top of the list doesn't fit, take the next one down that
   does. If none fits, end the tick.
 - A work item too big for a whole tick is never a reason to skip it forever.
-  At the start of a tick, take it and build the first slice that fits, as a
-  PR that says `Part of COU-<n>`; the next tick builds the next slice.
+  At the start of a tick, take it, split it into sub-issues (see "Splitting a
+  work item") and build the first that fits; the next tick builds the next.
 - Past the limit, start nothing new. A job already under way carries on, up
   to the ceiling.
 
@@ -377,8 +379,9 @@ only the pull request steps (1 to 4).
 ## While you are on a work item
 
 - Open the pull request early, as a draft if need be, with
-  `Closes COU-<n>` in its body (or `Part of COU-<n>` for one slice
-  of a large work item), a link to the work item, and the `swarm/pr` label.
+  `Closes COU-<n>` in its body, a link to the work item, and the `swarm/pr`
+  label. Work that needs a second PR is split first ("Splitting a work item");
+  `Part of COU-<n>` alone leaves what is left where nothing tracks it.
   While that PR is open the work item is in progress there and is not offered
   as new work; the PR is what the next agent carries on. The sweep links the
   PR from the work item and moves the item to Done when a PR that closes it
@@ -392,6 +395,69 @@ only the pull request steps (1 to 4).
   been on for 90 minutes (`AGENT_CLAIM_MINUTES`), on a work item or a PR.
 - New work you find goes into Linear as a work item in Backlog, never as a
   GitHub issue. The owner decides when it is ready.
+
+## Splitting a work item
+
+**Work that takes more than one PR is split into sub-issues, one for each
+PR.** Linear then shows what is done, what is being built and what is left; a
+list in a PR body or a comment doesn't. Whether to split is yours to decide,
+when you start the item or when you find part-way that it is too big. (A
+task-breakdown tick's slices are another thing: work items beside the one it
+holds, waiting for the owner's approval.)
+
+**To split one you hold**, in Todo or In Progress:
+
+1. Cut it into parts that each make one PR. Together they cover the whole of
+   its Scope and every Acceptance check, **the part you are building now
+   included**; the item closes when they are done, so what no part covers is
+   lost. A check that only holds at the end (a count at zero, a rule's docs)
+   goes in a last part, blocked by the others.
+2. Write each part as a work item another agent can build without asking:
+   `# <title>`, a paragraph of goal, then `### Scope`, `### Not in this
+   item`, `### Acceptance` and `### Verify`, and any line your repository's
+   `CLAUDE.md` asks of a sub-issue. A part only divides the item's scope. New
+   work you find is a work item in Backlog, as always.
+3. `agent.mjs create <key> <file.md> --sub` for each, in the order to build
+   them, with `--blocked-by=<keys>` where one needs another to land first. It
+   is made in Backlog, with the item's product labels, priority, project and
+   sprint (`--labels` and `--priority` change them, as for a slice).
+4. `agent.mjs submit <key> "<how you cut it>" --split=<every part's key>`
+   moves the parts to Todo, lists them in a comment on the item, and takes your
+   lock off it. The owner approved the item, so its parts need no second
+   approval. Don't end the tick between steps 3 and 4: parts left in Backlog
+   are built by nobody.
+5. `agent.mjs claim` the part you build now. If a PR for the item is open
+   already, its body now says `Closes` that part.
+
+By hand: make each part with the item as its parent and the item's labels
+(no `swarm/` label but `focus` and `needs-<thing>`), set its blockers, move
+them all to Todo once the last is made, and leave the item In Progress.
+
+**To build a part**, take it as any other work item. A part takes its item's
+focus and its place in the queue, and its job's `partOf` names the item:
+`agent.mjs show <item>` lists the other parts with their states, so read what
+is done before you start. The item itself is not offered while a part is open.
+
+- The PR says `Closes COU-<part> (part of COU-<item>)`. Its merge makes the
+  part Done; that is how a part is marked done, so close nothing by hand.
+- Never write `Closes` for the item, not even in the PR of the last part.
+  Linear would close it at the merge, past Review and ahead of parts that are
+  still open.
+- A part goes to Review only if it carries `swarm/qa`: the owner walks the
+  item, not each part.
+- If you find something the parts miss, claim the item, add a part (steps 3
+  to 5), and go on. A part that is itself too big is split the same way.
+- `swarm/hands-off` on the item doesn't reach its parts: the owner puts it on
+  each that is theirs.
+
+**After the last part** the sweep moves the item to Review or Done by its own
+labels, once no agent holds it and no PR for it is open. If the owner sends it
+back to Todo it is offered again with the merged PRs and the owner's comment
+(see "Where the work is"), and the fix's PR says `Closes COU-<item>`.
+
+**An item begun as `Part of` PRs with no sub-issues** (from before this rule,
+or by an agent that missed it): before you build any more of it, read what its
+merged PRs say is left and split that. What has merged needs no part.
 
 ## Merging
 
@@ -480,8 +546,8 @@ Decide what you can. A question with a likely right answer is yours to answer:
 The owner says what matters most with the team's **current cycle** (the
 sprint) in Linear, and the `swarm/focus` label on a single work item. A work
 item is in focus when it is in the sprint or carries the label, when it is a
-sub-issue of one that is (Linear's parent link, up to three levels down), or
-when one of those waits on it: its blockers, their blockers, and so on, so a chain
+sub-issue of one that is in focus (Linear's parent link), or
+when one in focus waits on it: its blockers, their blockers, and so on, so a chain
 in the sprint is worked from its first open link. Naming a work item in a
 description ("Part of COU-12", a list of next steps) does not put it in
 focus.
@@ -492,8 +558,9 @@ Step 5 starts only work in focus, in this order:
 2. **What waits on it**: between equal priorities, the item more open work is
    waiting on, counted down the whole chain: every item whose "Blocked by"
    line or Linear "blocked by" relation names it, those that name them, and so
-   on.
-3. Equal on both: any of them.
+   on. For a part of a split item, what waits on the item counts too.
+3. **Age**: equal on both, the oldest. A part is as old as the item it is part
+   of, so finishing comes before starting.
 
 When nothing in focus can be claimed (all held, blocked, or needing what you
 lack), start nothing. Focus changes nothing in steps 1 to 3: PRs that need
@@ -691,7 +758,8 @@ it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
 sweeps only its own repository's work items and pull requests. It removes a lapsed claim and settles a doubled one, keeps
 `swarm/blocked` on the open work items that have an open blocker, moves
 work items with their pull requests (In Progress from Todo, never Backlog, with
-a link while one is open, Review or Done once one that closes them merges), and it keeps the **Agent desk**
+a link while one is open, Review or Done once one that closes them merges, or
+once the last sub-issue of a split item is done), and it keeps the **Agent desk**
 work item in Linear current with whatever is overdue: a ready work item in focus
 no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything

@@ -19,7 +19,7 @@ function fakeClient(item, { comments = [], attachments = [], files = {}, others 
     setStage: async (key, stage) => { log.push(`stage ${key} ${stage}`); return stage; },
     comments: async () => comments,
     subIssues: async () => ['COU-9'],
-    seen: (k) => (k === 'COU-9' ? { title: 'Child' } : null),
+    seen: (k) => (k === 'COU-9' ? { title: 'Child', stage: 'completed' } : null),
     blockers: async () => ['COU-2'],
     attachments: async () => attachments,
     attachmentUrl: async (key, id) => `https://uploads.linear.app/w/${id}/`,
@@ -45,8 +45,13 @@ test('show: the work item as Markdown, with its comments, children, blockers and
   const out = await run('show', ['COU-7'], c);
   assert.equal(out.description, 'Old text.\n\n![Board](https://uploads.linear.app/w/b.png)');
   assert.deepEqual(out.comments, [{ at: 't', text: 'Make it **smaller**.' }]);
-  assert.deepEqual(out.children, [{ key: 'COU-9', title: 'Child' }]);
+  assert.deepEqual(out.children, [{ key: 'COU-9', title: 'Child', stage: 'completed' }]);
   assert.deepEqual([out.blockers, out.attachments.map((a) => a.name)], [['COU-2'], ['board.png']]);
+});
+
+test('show: a sub-issue names its parent by key', async () => {
+  const c = fakeClient(item(undefined, { parent: 'i3' }), { others: [{ ...item([]), key: 'COU-3', number: 'COU-3', id: 'i3' }] });
+  assert.equal((await run('show', ['COU-7'], c)).parent, 'COU-3');
 });
 
 test('images: every image the description shows and every attachment, saved where the agent can read them', async () => {
@@ -191,5 +196,42 @@ test('submit --filed: a "Task breakdown" item is Done with its label; what waite
 test('submit --replaced-by: a key that is no work item stops it before anything changes', async () => {
   const c = fakeClient(item());
   await assert.rejects(run('submit', ['COU-7', 'Two slices.', '--replaced-by=COU-50,COU-99'], c), (e) => e instanceof BreakdownUsage && /COU-50, COU-99: no such work item/.test(e.message));
+  assert.deepEqual(c.log, []);
+});
+
+const BUILDING = ['swarm/agent/claude-task-breakdown-1', 'swarm/focus', 'swarm/qa', 'area/app'];
+
+test('create --sub: a part of the item being built is its sub-issue, with its labels but not its QA', async () => {
+  const c = fakeClient(item(BUILDING, { stage: 'started', project: 'p1', cycle: 'cy1', sprint: true }), { files: { 's.md': '# Part one\n\nBody.' } });
+  const out = await run('create', ['COU-7', 's.md', '--sub', '--blocked-by=COU-2'], c);
+  assert.deepEqual(c.made, [{ title: 'Part one', body: 'Body.', labels: ['swarm/focus', 'area/app'], parent: 'COU-7', priority: 'high', project: 'p1', cycle: 'cy1' }]);
+  assert.equal(out.parent, 'COU-7');
+  assert.deepEqual(c.log, ['create Part one', 'relate COU-50 blocked_by COU-2'], 'it stays in Backlog until submit --split');
+});
+
+test('create --sub and submit --split: only work the owner approved is split, and never a task-breakdown tick\'s item', async () => {
+  const part = { ...item([]), key: 'COU-50', number: 'COU-50', id: 'COU-50', parent: 'i7' };
+  for (const [labels, stage] of [[BUILDING, 'backlog'], [BUILDING, 'needs-human'], [[...BUILDING, 'swarm/task-breakdown'], 'unstarted']]) {
+    const c = fakeClient(item(labels, { id: 'i7', stage }), { files: { 's.md': '# Part\n\nBody.' }, others: [part] });
+    await assert.rejects(run('create', ['COU-7', 's.md', '--sub'], c), BreakdownUsage);
+    await assert.rejects(run('submit', ['COU-7', 'Two parts.', '--split=COU-50'], c), BreakdownUsage);
+    assert.deepEqual(c.log, []);
+  }
+});
+
+test('submit --split: the parts go to Todo together, the item says what they are and its lock comes off', async () => {
+  const part = (key, extra = {}) => ({ ...item([]), key, number: key, id: key, title: `Part ${key}`, parent: 'i7', ...extra });
+  const c = fakeClient(item(BUILDING, { id: 'i7', stage: 'started' }), { others: [part('COU-50'), part('COU-51'), part('COU-52', { stage: 'started' })] });
+  const out = await run('submit', ['COU-7', 'Cut by folder.', '--split=COU-50,COU-51,COU-52'], c);
+  assert.deepEqual(c.log, ['comment Cut by folder.', 'stage COU-50 unstarted', 'stage COU-51 unstarted', 'remove swarm/agent/claude-task-breakdown-1'], 'one already under way is left where it is');
+  assert.deepEqual([out.split, out.released], [['COU-50', 'COU-51', 'COU-52'], ['COU-7']]);
+  assert.deepEqual(c.item.labels.map((l) => l.name), ['swarm/focus', 'swarm/qa', 'area/app']);
+});
+
+test('submit --split: a key that is not a sub-issue of the item stops it before anything changes', async () => {
+  const other = { ...item([]), key: 'COU-50', number: 'COU-50', id: 'COU-50', parent: 'i8' };
+  const c = fakeClient(item(BUILDING, { id: 'i7', stage: 'started' }), { others: [other] });
+  await assert.rejects(run('submit', ['COU-7', 'Parts.', '--split=COU-50,COU-99'], c), (e) => e instanceof BreakdownUsage && /COU-50, COU-99: not a sub-issue of COU-7/.test(e.message));
+  await assert.rejects(run('submit', ['COU-7', 'Parts.', '--split='], c), BreakdownUsage);
   assert.deepEqual(c.log, []);
 });
