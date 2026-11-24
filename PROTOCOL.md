@@ -623,13 +623,15 @@ wireframe to PNG (`npx -y playwright screenshot --viewport-size "1440, 900"
 --full-page file://$PWD/<file>.html <file>.png`, or 390 × 844 for a phone
 frame) and attach the PNGs to the work item (`agent.mjs attach <key>
 <file.png>…`), so the owner can review in Linear. The rewritten description
-points at the spec by path and at the PR. The spec's open questions go in
-the spec; a question the design can't proceed without goes to the owner with
+points at the spec by path and at the PR. Neither the spec nor the PR has open
+questions: decide what has a likely right answer and record it under the spec's
+"Decisions". One that is really the owner's (couchy-design's `AGENTS.md`,
+"Questions for the owner") is asked before the PR opens, with
 `agent.mjs needs-human <key> "<question>"`, which moves the item to Needs Human,
 and the tick moves on.
 
 **Done:** `agent.mjs submit <key> "<summary>"` comments the summary (what
-changed, the slices, the design PR, and anything the owner should decide),
+changed, the slices, and the design PR),
 takes off `swarm/task-breakdown` or `swarm/design`, and your lock. With
 `--replaced-by` the item is Canceled as well, and with `--filed` it is Done and
 keeps its label (above). A breakdown that isn't finished when the tick ends stays locked until

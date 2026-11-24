@@ -73,7 +73,7 @@ design, and the architect's design is reviewed by another agent.
 - **It holds:** the problem, the case against and the owner's answer
   **(new)**, the proposal screen by screen, behaviour and every word on the
   screen, "What a still cannot show" for desk width, the design system pieces,
-  what is out of scope, open questions with a recommended answer each, and
+  what is out of scope, the decisions made, and
   **acceptance: checks a person can walk**, written so they can be copied word
   for word into work items.
 - **It does not hold how to build it.** No file to change, no helper to
@@ -105,7 +105,6 @@ design, and the architect's design is reviewed by another agent.
   | New rules or checks | each in a line, or "none" |
   | Changes to the API | each in a line, or "none" |
   | What the spec costs most | the one part to cut if this is too big, and what cutting saves |
-  | Questions for the owner | real forks only, each with a recommended answer |
 
 - **Then, for the agents:**
   - **Patterns.** Which of the repository's rules apply, by number
@@ -125,6 +124,9 @@ design, and the architect's design is reviewed by another agent.
   - **Tests.** What is tested on the model, what on a view, which simulator
     and web-smoke flows.
   - **Not doing.** What a builder might be tempted to add.
+  - **Decisions.** What the spec and the code left open, and the choice made.
+    A question that is really the owner's is asked on the work item before the
+    PR opens; the PR has none.
 - **The architect pushes back on cost** the way the design agent pushes back
   on the idea: "this state costs 12 pull requests; without it, 3" goes in
   "What the spec costs most". It does not change the spec. A spec it cannot
@@ -234,7 +236,7 @@ design, and the architect's design is reviewed by another agent.
 
 | From | To | When | How |
 | --- | --- | --- | --- |
-| Architect | Design agent and owner | The spec cannot be built as written, or one part costs far more than the rest | A question on the spec's PR or work item, with options and what each costs |
+| Architect | Design agent and owner | The spec cannot be built as written, or one part costs far more than the rest | A question on the work item before the design's PR opens, with options and what each costs; a part that only costs more goes in "What the spec costs most" |
 | Task-breakdown agent | Architect | An entry of the issue sequence can't be filed as written | A comment on the "Task breakdown: <slug>" work item, and Needs Human; the owner moves the "Technical design" one back to Todo |
 | Builder | Architect | The design section is wrong | Pause the work item with the question |
 | Sweep | Architect | A work item passes its expected pull request count | The stop, and a line on the desk |
@@ -251,7 +253,7 @@ has skipped the check that role exists for.
 | --- | --- | --- |
 | Per feature | The riff | As long as it is useful |
 | Per feature | The spec, then merge | What it takes today |
-| Per feature | The plan card, then merge and move the packages to Todo | A few minutes: a table and at most three questions |
+| Per feature | The plan card, then merge and move the packages to Todo | A few minutes: one table |
 | Per work item in Review | Walk the acceptance checks | What it takes today |
 | Weekly | The digest | About ten minutes |
 | Monthly | The audit's summary | About ten minutes |

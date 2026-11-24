@@ -97,7 +97,6 @@ it is first:
 | New rules or checks | each in a line, or "none" |
 | Changes to the API | each in a line, or "none" |
 | What the spec costs most | the one part to cut if this is too big, and what cutting saves |
-| Questions for the owner | real forks only, each with your recommended answer |
 
 **Patterns.** Which of the repository's rules apply, by number ("app rule 7"),
 and for each new screen its model, its views and where it is registered.
@@ -145,18 +144,39 @@ web-smoke flows the feature adds.
 
 **Not doing.** What a builder might be tempted to add.
 
+**Decisions.** What the spec and the code left open and you settled: the
+choice and why, a line each, and the owner's answers with the date. Nothing
+in it waits for an answer.
+
 **As built.** Left empty. It is filled in when the last package ships.
 
 ### What you may not decide
 
-- **What the person sees.** You do not change a screen, a state or a word. If
-  the spec cannot be built as written, or one part of it costs far more than
-  the rest, that goes in "What the spec costs most" or "Questions for the
-  owner" with options and what each costs. Then design the rest.
+- **What the person sees.** You do not change a screen, a state or a word.
+  Where the spec leaves out a detail or says it two ways, take the reading
+  closest to its words and to what the app does today, and record it under
+  "Decisions". If one part costs far more than the rest, that goes in "What
+  the spec costs most"; design it all the same. If the spec cannot be built
+  as written, ask ("Questions", below).
 - **Priority and focus.** Those are the owner's.
 - **A new seam for the whole codebase.** A contract every screen would take on
-  is product direction: put it under "Questions for the owner", with the
-  smaller design you would build without it.
+  is product direction: design the smaller thing that does without it, and
+  name the seam under "Decisions". Ask only if nothing can be built without it.
+
+### Questions
+
+Most designs need none, and no part of the design or its pull request has a
+place for one. couchy-design's `AGENTS.md`, "Questions for the owner", says
+what is worth asking and the form to write it in. What is, you ask before the
+pull request opens, every question in one comment:
+
+```bash
+node ../swarm/agent.mjs needs-human <key> "<the questions, in that form>"
+```
+
+Push your branch first, then take the next job. The owner answers on the work
+item and moves it back to Todo; the next architect tick records the answers
+under "Decisions" and carries the design on.
 
 ## Hand it on
 
@@ -164,7 +184,7 @@ web-smoke flows the feature adds.
    technical design, ready for review. Its title ends with the work item's key,
    `<slug>: technical design (<key>)`: Linear moves the work item to In
    Progress when the pull request opens and to Done when it merges, and finds
-   it by that key. Its body is the plan card. Do not label it `swarm/pr` or turn on auto-merge: the owner reads the plan card and
+   it by that key. Its body is the plan card and asks nothing. Do not label it `swarm/pr` or turn on auto-merge: the owner reads the plan card and
    merges, and merging is the approval.
 2. **Finish**, filing no work items:
 
@@ -181,14 +201,10 @@ web-smoke flows the feature adds.
 
 **When the work item comes back.** The owner moved it back to Todo. What to
 change is in the comments on the design's pull request since your
-last push, or on the "Task breakdown: <slug>" work item when a task-breakdown tick found an
+last push, in the answer on the work item when you asked a question, or on the "Task breakdown: <slug>" work item when a task-breakdown tick found an
 entry it could not file as written. Push the change to the same pull request and update its plan
 card; if that pull request has merged, open a new one that edits the design.
 Then finish as above.
-
-A question the design cannot proceed without goes to the owner with
-`agent.mjs needs-human <key> "<question>"`: the options, what each costs, the
-one you would pick. Then take the next job.
 
 ## Not yet
 
