@@ -621,6 +621,20 @@ test('reviewed status: the verdict and the hold labels, posted once', async () =
   assert.deepEqual(gh.log, ['status sha40 success']);
 });
 
+test("`reviewed` gates only what merges into main: a held, stacked pull request is not offered for merging", async () => {
+  // The base is another pull request's branch, where nothing is required.
+  const stacked = (labels, extra = {}) => pull(50, ['swarm/pr', ...labels], { base: { ref: 'claude-3/parent' }, ...extra });
+  const job = async (pr, reviews = {}) => (await next(fake({ pulls: [pr], required: ['reviewed'], reviews }), { me: 'codex', doClaim: false })).job;
+  assert.notEqual(await job(stacked(['swarm/hold'])), 'merge');
+  assert.notEqual(await job(stacked(['swarm/hold']), { 50: [verdict('ok')] }), 'merge');
+  assert.equal(await job(stacked([])), 'review', 'with no verdict it is reviewed first, as where nothing gates it');
+  assert.equal(await job(stacked([]), { 50: [verdict('ok')] }), 'merge');
+  assert.equal(await job(stacked(['swarm/hold'], { auto_merge: {} })), 'hold', 'one already set to merge is taken off');
+  // On main nothing changes, and neither does a pull request whose base isn't given.
+  assert.equal(await job(pull(50, ['swarm/pr', 'swarm/hold'], { base: { ref: 'main' } })), 'merge');
+  assert.equal(await job(pull(50, ['swarm/pr', 'swarm/hold'])), 'merge');
+});
+
 test('swarm/review-only: agents review a person\'s PR and the gate holds it, but nobody fixes, continues or merges it', async () => {
   const pr = pull(80, ['swarm/review-only']);
   assert.equal(isReviewOnly(pr), true);
