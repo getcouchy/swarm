@@ -1266,3 +1266,9 @@ test('toolsCommit reads a copy of origin/main by its directory name', () => {
   assert.match(toolsCommit(), /^[0-9a-f]{12}$/, 'this checkout');
   assert.equal(toolsCommit(tmpdir()), null);
 });
+
+test("TICK_EVENTS_FILE: a line says what is left of the tracker's complexity budget, once it is known", async () => {
+  const left = (n) => Object.assign(fake(), { workItemsComplexityRemaining: () => n });
+  assert.equal((await tickEvent([left(9000), left(120000), left(null)], 'finish')).line.trackerComplexityRemaining, 9000);
+  assert.equal('trackerComplexityRemaining' in (await tickEvent([left(null)], 'finish')).line, false);
+});
