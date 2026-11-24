@@ -42,8 +42,8 @@
 // Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy), and
 // the work item tracker's credentials (Linear's: linear.mjs).
 // TICK_EVENTS_FILE, when set, gets one JSON line per command that ran: the
-// job, the locks taken and released, the handoff, the GitHub requests left
-// (commands.mjs).
+// job, the queue it came from, the locks taken and released, the handoff, the
+// GitHub requests left (commands.mjs).
 
 import { spawnSync } from 'node:child_process';
 import { relative } from 'node:path';
@@ -51,7 +51,7 @@ import { fileURLToPath } from 'node:url';
 import { run, UsageError, writeEvent } from './lib/commands.mjs';
 import { reposFromEnv } from './lib/github.mjs';
 import { providerFromEnv, tracker } from './lib/workitems.mjs';
-import { syncHere, toolsFromMain } from './lib/preflight.mjs';
+import { syncHere, toolsCommit, toolsFromMain } from './lib/preflight.mjs';
 import { isValidProvider } from './lib/rules.mjs';
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -102,7 +102,7 @@ if (cmd === 'next' && !process.env.AGENT_NO_SYNC) {
 }
 let result;
 try {
-  result = await run(cmd, args, { clients, me, can, role, ceiling, minutes: Number(process.env.AGENT_TICK_MINUTES || 20), entry, checkout });
+  result = await run(cmd, args, { clients, me, can, role, ceiling, minutes: Number(process.env.AGENT_TICK_MINUTES || 20), entry, checkout, swarm: toolsCommit() });
 } catch (e) {
   if (!(e instanceof UsageError)) throw e;
   console.error(e.message);

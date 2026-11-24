@@ -10,10 +10,10 @@ import {
 import { client } from '../lib/github.mjs';
 import { LABELS, countLabelled, deskBody, migrateLabels, readCounters, sweep, sweepMetrics, writeDesk } from '../sweep.mjs';
 import { registry } from '../lib/metrics.mjs';
-import { claim, firstJob, focusOf, mayContinue, next, nextAcross, releaseAll } from '../lib/tick.mjs';
+import { claim, firstJob, focusOf, mayContinue, next, nextAcross, queueOf, releaseAll } from '../lib/tick.mjs';
 import { run, UsageError, writeEvent } from '../lib/commands.mjs';
 import { report, status } from '../reviewed.mjs';
-import { likelyWork, sync, toolsStale } from '../lib/preflight.mjs';
+import { likelyWork, sync, toolsCommit, toolsStale } from '../lib/preflight.mjs';
 
 const NOW = Date.parse('2026-11-10T12:00:00Z');
 const ago = (h) => new Date(NOW - h * 3_600_000).toISOString();
@@ -910,6 +910,7 @@ test('every label the sweep creates has a description GitHub will accept', () =>
   }
 });
 
+const NO_QUEUE = { queue: { size: 0, items: [] }, rank: null };
 /** Run an agent.mjs command on fake clients and read back the one line it wrote to TICK_EVENTS_FILE, less its time. */
 async function tickEvent(clients, cmd, args = []) {
   const file = join(mkdtempSync(join(tmpdir(), 'tick-events-')), 'events.jsonl');
@@ -929,15 +930,15 @@ test('TICK_EVENTS_FILE: next writes the job it offered, with its title, and what
   const limited = (gh, left) => Object.assign(gh, { rateLimitRemaining: () => left });
   let { line } = await tickEvent([limited(fake({ issues: [issue(3)] }), 4900), limited(fake({ repo: agent }), 4870), limited(fake({ repo: 'o/r' }), null)], 'next');
   const three = { repo: home, number: 3, type: 'issue', title: 'Issue 3' };
-  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'implement', ...three, claimed: [three], rateLimitRemaining: 4870 });
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'implement', ...three, claimed: [three], queue: { size: 1, items: [{ key: 3, repo: home, priority: 'none', unblocks: 0 }] }, rank: 1, rateLimitRemaining: 4870 });
 
   // A PR's job is on the PR; a fix takes its lock, a review takes none, and --look takes nothing.
   const red = { sha20: [{ name: 'check', conclusion: 'failure' }] };
   ({ line } = await tickEvent([fake({ pulls: [pull(20, ['swarm/pr'])], checks: red })], 'next'));
   const twenty = { repo: home, number: 20, type: 'pull', title: 'PR 20' };
-  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'fix', ...twenty, claimed: [twenty], rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'fix', ...twenty, claimed: [twenty], ...NO_QUEUE, rateLimitRemaining: null });
   ({ line } = await tickEvent([fake({ issues: [issue(3)] }), fake({ repo: agent, pulls: [pull(13, ['swarm/pr'])] })], 'next'));
-  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'review', repo: agent, number: 13, type: 'pull', title: 'PR 13', claimed: [], rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'review', repo: agent, number: 13, type: 'pull', title: 'PR 13', claimed: [], queue: { size: 1, items: [{ key: 3, repo: home, priority: 'none', unblocks: 0 }] }, rank: null, rateLimitRemaining: null });
   const looked = fake({ issues: [issue(3)] });
   ({ line } = await tickEvent([looked], 'next', ['--look']));
   assert.deepEqual([line.job, line.number, line.claimed, looked.log], ['implement', 3, [], []]);
@@ -952,7 +953,7 @@ test('TICK_EVENTS_FILE: next writes the job it offered, with its title, and what
   // Nothing to do: why, and what was passed by in each repository.
   let out;
   ({ out, line } = await tickEvent([fake({ issues: [issue(4, ['couchy-ux/approved', 'swarm/focus', 'swarm/needs/design'])] }), fake({ repo: agent })], 'next'));
-  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'none', claimed: [], why: out.why, skipped: [{ repo: home, issue: 4, why: out.repos[0].skipped[0].why }], rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'next', job: 'none', claimed: [], why: out.why, skipped: [{ repo: home, issue: 4, why: out.repos[0].skipped[0].why }], ...NO_QUEUE, rateLimitRemaining: null });
   assert.match(line.skipped[0].why, /needs design/);
 });
 
@@ -961,7 +962,7 @@ test('TICK_EVENTS_FILE: more and finish write what they released, with titles', 
   const mine = () => fake({ issues: [issue(1, ['couchy-ux/approved', 'swarm/agent/codex'])], pulls: [pull(50, ['swarm/pr', 'swarm/agent/codex'])] });
   const released = [{ repo: home, number: 1, type: 'issue', title: 'Issue 1' }, { repo: home, number: 50, type: 'pull', title: 'PR 50' }];
   let { out, line } = await tickEvent([mine()], 'more', [`--started=${new Date().toISOString()}`]);
-  assert.deepEqual(line, { v: 1, cmd: 'more', job: 'review', repo: home, number: 50, type: 'pull', title: 'PR 50', released, rateLimitRemaining: null });
+  assert.deepEqual(line, { v: 1, cmd: 'more', job: 'review', repo: home, number: 50, type: 'pull', title: 'PR 50', released, ...NO_QUEUE, rateLimitRemaining: null });
   assert.deepEqual(out.released, ['getcouchy/couchy#1', 'getcouchy/couchy#50'], 'what it prints is unchanged');
   ({ line } = await tickEvent([fake({ issues: [issue(3)] })], 'more', [`--started=${new Date(Date.now() - 3_600_000).toISOString()}`]));
   assert.deepEqual(line, { v: 1, cmd: 'more', job: 'none', released: [], why: '60 minutes into this tick (limit 20)', skipped: [], rateLimitRemaining: null });
@@ -1149,4 +1150,48 @@ test('sweep: a task-breakdown lock on Backlog work is fine; the desk lists work 
   assert.ok(!keys.includes('unapproved:1'));
   assert.ok(keys.includes('unapproved:6'), 'a builder holding Backlog work still is');
   assert.deepEqual(overdue.filter((o) => o.section === 'Waiting for task breakdown').map((o) => o.line), ['#2 Issue 2 (design)']);
+});
+
+test('the queue ranks ready items across repositories, mine included', async () => {
+  const couchy = fake({
+    issues: [issue(1, undefined, { priority: 'low' }), issue(2, undefined, { priority: 'none' }), issue(4, undefined, { priority: 'urgent' }),
+      issue(5, ['swarm/focus', 'swarm/agent/grok'], { priority: 'urgent' }), issue(6, ['swarm/focus', 'swarm/agent/codex'], { priority: 'high' }),
+      issue(7, undefined, { priority: 'none' })],
+    blockers: { 4: ['#99'] }, blocking: { 7: [2] },
+  });
+  const agent = fake({ repo: 'getcouchy/couchy-agent', issues: [issue(3, undefined, { priority: 'urgent' })] });
+  const q = await queueOf([couchy, agent], { me: 'codex' });
+  assert.deepEqual(q.map((i) => i.key), [3, 6, 1, 7, 2], 'blocked and held by others are out; unblocks breaks the tie');
+  assert.deepEqual(q[3], { key: 7, repo: 'getcouchy/couchy', priority: 'none', unblocks: 1 });
+  assert.deepEqual(couchy.log, [], 'reading the queue changes nothing');
+});
+
+test('a repository that cannot be read costs its items, not the queue', async () => {
+  const gone = Object.assign(fake(), { openIssues: async () => { throw Object.assign(new Error('no'), { status: 404 }); } });
+  assert.deepEqual((await queueOf([fake({ issues: [issue(1)] }), gone], { me: 'codex' })).map((i) => i.key), [1]);
+});
+
+test('TICK_EVENTS_FILE: next says where its offer ranked, and caps the queue at 20', async () => {
+  const issues = Array.from({ length: 25 }, (_, i) => issue(i + 1));
+  const { line } = await tickEvent([fake({ issues })], 'next');
+  assert.deepEqual([line.number, line.rank, line.queue.size, line.queue.items.length], [1, 1, 25, 20]);
+});
+
+test('TICK_EVENTS_FILE: a queue that cannot be read costs its fields, not the line', async () => {
+  let reads = 0;
+  const gh = fake({ issues: [issue(3)] });
+  gh.openPulls = async () => { if (++reads > 1) throw new Error('GitHub is down'); return []; };
+  const { line } = await tickEvent([gh], 'next');
+  assert.deepEqual([line.job, line.number, 'queue' in line, 'rank' in line], ['implement', 3, false, false]);
+});
+
+test("TICK_EVENTS_FILE: a line carries the tools' commit when it is known", async () => {
+  const { event } = await run('finish', [], { clients: [fake()], me: 'codex', can: new Set(), role: 'all', ceiling: 45, minutes: 20, entry: 'agent.mjs', swarm: '0123456789ab' });
+  assert.equal((await event()).swarm, '0123456789ab');
+});
+
+test('toolsCommit reads a copy of origin/main by its directory name', () => {
+  assert.equal(toolsCommit('/tmp/swarm-tools-0123456789ab/lib'), '0123456789ab');
+  assert.match(toolsCommit(), /^[0-9a-f]{12}$/, 'this checkout');
+  assert.equal(toolsCommit(tmpdir()), null);
 });
