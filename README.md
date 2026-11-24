@@ -59,7 +59,11 @@ released and the handoffs it made (each with its repository, number, `issue`
 or `pull` and title; a work item also with its `key`, its number being its
 sequence number in Linear, and `pulls`, the open pull requests that close it or
 are part of it; a pull request also with `workItem`, the key its body closes or
-is part of), and the GitHub requests left on the token. The tick runner in getcouchy/agent-runner
+is part of), and the GitHub requests left on the token. A regular tick's `next`
+and `more` lines also carry `queue`, the items it could have started (its size
+and the first 20, best first, with priority and how many open items each
+unblocks), and `rank`, where the job offered stood in it; every line has,
+when it is known, `swarm`, the commit of these tools. The tick runner in getcouchy/agent-runner
 sets it for each run and turns the lines into live metrics; how it reads them
 is documented there. Unset, nothing is written.
 
