@@ -245,7 +245,10 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    `<!-- agent: <your name> verdict: ok -->` or
    `<!-- agent: <your name> verdict: changes -->`. Agents often share one
    GitHub account, where a review can only be a comment, so the marker is what
-   counts; an unmarked review from that account does not. The one PR you never
+   counts; an unmarked review from that account does not. Leave the verdict in
+   a PR review. A comment with the verdict marker counts as well. Either counts
+   only from someone who may push to the repository, or an agent's own App.
+   The one PR you never
    review is one you opened or pushed to in this same session. If your verdict
    is `ok`, turn on auto-merge in the same tick, unless the PR is
    `swarm/review-only`: its author merges it. Take a PR that is in focus
