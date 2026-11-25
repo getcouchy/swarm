@@ -1025,20 +1025,20 @@ test('a builder tick builds what is in focus and nothing else; other ticks revie
 
   // A builder skips the review and the older unfocused issue, and takes the focused one.
   let gh = fake({ issues: issues(), subIssues, pulls: [theirs, theirsFocus] });
-  let job = await next(gh, { me: 'codex-focus-1', role: 'focus' });
+  let job = await next(gh, { me: 'codex-focus-1', role: 'builder' });
   assert.deepEqual([job.job, job.issue, job.focus], ['implement', 1223, 1412]);
   assert.deepEqual(gh.log, ['add 1223 swarm/agent/codex-focus-1']);
   // With nothing in focus left to take it stops, though #3 is free.
-  job = await next(fake({ issues: [issue(3, ['couchy-ux/approved']), seq], pulls: [theirs] }), { me: 'codex-focus-1', role: 'focus' });
+  job = await next(fake({ issues: [issue(3, ['couchy-ux/approved']), seq], pulls: [theirs] }), { me: 'codex-focus-1', role: 'builder' });
   assert.deepEqual([job.job, job.why], ['none', 'nothing in focus is claimable']);
   // A PR in focus that needs work comes first, whoever opened it; one outside focus is not a builder's.
   const mine = pull(62, ['swarm/pr'], { body: 'Closes #1223' });
-  job = await next(fake({ issues: issues(), subIssues, pulls: [mine], checks: { sha62: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex-focus-1', role: 'focus' });
+  job = await next(fake({ issues: issues(), subIssues, pulls: [mine], checks: { sha62: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex-focus-1', role: 'builder' });
   assert.deepEqual([job.job, job.pull], ['fix', 62]);
-  job = await next(fake({ issues: [seq], subIssues, pulls: [theirs], checks: { sha60: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex-focus-1', role: 'focus' });
+  job = await next(fake({ issues: [seq], subIssues, pulls: [theirs], checks: { sha60: [{ name: 'check', conclusion: 'failure' }] } }), { me: 'codex-focus-1', role: 'builder' });
   assert.equal(job.job, 'none');
   // It turns auto-merge on for a PR in focus where reviewed is required, and leaves the others.
-  job = await next(fake({ issues: issues(), subIssues, pulls: [theirs, mine], required: ['reviewed'] }), { me: 'codex-focus-1', role: 'focus' });
+  job = await next(fake({ issues: issues(), subIssues, pulls: [theirs, mine], required: ['reviewed'] }), { me: 'codex-focus-1', role: 'builder' });
   assert.deepEqual([job.job, job.pull], ['merge', 62]);
 
   // An ordinary tick reviews the PR in focus before an older one that isn't.
@@ -1072,7 +1072,7 @@ const NO_QUEUE = { queue: { size: 0, items: [] }, rank: null };
 /** Run an agent.mjs command on fake clients and read back the one line it wrote to TICK_EVENTS_FILE, less its time. */
 async function tickEvent(clients, cmd, args = []) {
   const file = join(mkdtempSync(join(tmpdir(), 'tick-events-')), 'events.jsonl');
-  const { out, event } = await run(cmd, args, { clients, me: 'codex', can: new Set(), role: 'all', ceiling: 45, minutes: 20, entry: 'agent.mjs' });
+  const { out, event } = await run(cmd, args, { clients, me: 'codex', can: new Set(), role: 'general', ceiling: 45, minutes: 20, entry: 'agent.mjs' });
   await writeEvent(file, event);
   const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.equal(lines.length, 1);
@@ -1178,7 +1178,7 @@ test('a job says how to pass over it, and the line says what was', async () => {
 
 test('more --skip passes over task-breakdown work too', async () => {
   const wanted = (key) => issue(key, ['swarm/task-breakdown']);
-  const opts = { me: 'claude-task-breakdown-1', role: 'task-breakdown', doClaim: false };
+  const opts = { me: 'claude-task-breakdown-1', role: 'pm', doClaim: false };
   assert.equal((await nextAcross([fake({ issues: [wanted('COU-1'), wanted('COU-2')] })], { ...opts, skip: new Set(['COU-1']) })).issue, 'COU-2');
   const held = issue('COU-1', ['swarm/task-breakdown', 'swarm/agent/claude-task-breakdown-1']);
   assert.equal((await nextAcross([fake({ issues: [held, wanted('COU-2')] })], { ...opts, skip: new Set(['COU-1']) })).issue, 'COU-2');
@@ -1313,7 +1313,7 @@ test('task breakdown: a task-breakdown tick takes what the owner labelled, in fo
   assert.match(whyNotBreakdown(issue(1, ['swarm/design', 'swarm/needs-human'], { stage: 'backlog' })), /needs-human/);
   assert.match(whyNotClaimable(issue(1, ['swarm/focus', 'swarm/task-breakdown']), {}), /waiting for swarm\/task-breakdown/);
 
-  const breakdown = { me: 'claude-task-breakdown-1', role: 'task-breakdown' };
+  const breakdown = { me: 'claude-task-breakdown-1', role: 'pm' };
   const queue = () => [
     ask(10, { priority: 'urgent' }),
     issue(11, ['swarm/design'], { stage: 'backlog', priority: 'low' }),
@@ -1350,13 +1350,13 @@ test('architect: an architect tick takes only swarm/tech-design work; a task-bre
   job = await next(gh, architect);
   assert.deepEqual([job.issue, job.claimed], [30, true]);
   assert.deepEqual(gh.log, ['add 30 swarm/agent/claude-architect-1']);
-  job = await next(fake({ issues: queue() }), { me: 'claude-task-breakdown-1', role: 'task-breakdown', doClaim: false });
+  job = await next(fake({ issues: queue() }), { me: 'claude-task-breakdown-1', role: 'pm', doClaim: false });
   assert.deepEqual([job.kind, job.issue], ['task-breakdown', 31], 'a task-breakdown tick never takes a technical design');
   job = await next(fake({ issues: [issue(31, ['swarm/task-breakdown'], { stage: 'backlog' })] }), architect);
   assert.deepEqual([job.job, job.why], ['none', 'nothing is waiting for a technical design'], 'and an architect takes nothing else');
   // A finished one keeps its label, in Review until its design PR merges: nobody takes it.
   const finished = () => [td(33, { stage: 'qa' })];
-  for (const who of [architect, { me: 'claude-task-breakdown-1', role: 'task-breakdown' }, { me: 'claude-1' }]) {
+  for (const who of [architect, { me: 'claude-task-breakdown-1', role: 'pm' }, { me: 'claude-1' }]) {
     assert.equal((await next(fake({ issues: finished() }), { ...who, doClaim: false })).job, 'none');
   }
   // A builder skips a Todo item that waits for its technical design.
@@ -1413,7 +1413,7 @@ test('TICK_EVENTS_FILE: a queue that cannot be read costs its fields, not the li
 });
 
 test("TICK_EVENTS_FILE: a line carries the tools' commit when it is known", async () => {
-  const { event } = await run('finish', [], { clients: [fake()], me: 'codex', can: new Set(), role: 'all', ceiling: 45, minutes: 20, entry: 'agent.mjs', swarm: '0123456789ab' });
+  const { event } = await run('finish', [], { clients: [fake()], me: 'codex', can: new Set(), role: 'general', ceiling: 45, minutes: 20, entry: 'agent.mjs', swarm: '0123456789ab' });
   assert.equal((await event()).swarm, '0123456789ab');
 });
 

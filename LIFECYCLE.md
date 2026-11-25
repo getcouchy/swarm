@@ -33,7 +33,7 @@ card, and QA. Nothing else waits on the owner unless an agent hits a real fork
 | **Owner** | Whether to build it, what it is for, the plan's size, whether it shipped right, real forks | Reviews code or picks a pattern | The spec, the plan card, the weekly digest | Merges, QA comments, answers |
 | **Design agent** | What the person sees and does: screens, states, wording, on the phone and at desk width | Says how to build it | couchy-design, the design system, the live app | `spec.md`, wireframes |
 | **Architect** | How it is built: which patterns, what is shared, the order, the cut into packages | Changes what the person sees; reviews routine PRs; sets priority | The spec, the code, the repository's rules, every stream in flight | `tech-design.md` and its proposed issue sequence; later, rules and their lint checks **(new)** |
-| **Task-breakdown agent** | How a merged design's issue sequence, and work that did not come through the architect, become work items an agent can build without asking | Redesigns; builds | The work item, the spec, the technical design | Work items (`PROTOCOL.md`, "Task-breakdown ticks") |
+| **PM** (task breakdown) | How a merged design's issue sequence, and work that did not come through the architect, become work items an agent can build without asking | Redesigns; builds | The work item, the spec, the technical design | Work items (`PROTOCOL.md`, "PM ticks") |
 | **Builder** | Everything inside one work item | Redesigns: a wrong design goes back to the architect | The work item, the repository's rules | Pull requests |
 | **Reviewer** | `ok` or `changes` on one pull request | Reviews a PR it wrote in the same session | The PR, its work item, the rules, the item's other PRs **(new)** | A verdict |
 | **CI and the sweep** | Nothing: they check what is written down | | | Statuses, the desk, metrics |
@@ -119,7 +119,7 @@ design, and the architect's design is reviewed by another agent.
     written as the work item it becomes: title, labels, what it waits on,
     the contracts it uses, Scope, Not in this item, Acceptance (the spec's
     checks, word for word), Design, Fan-out (and the command that counted
-    it), Verify. Written so a task-breakdown tick on a smaller model files it without
+    it), Verify. Written so a pm tick on a smaller model files it without
     deciding anything.
   - **Tests.** What is tested on the model, what on a view, which simulator
     and web-smoke flows.
@@ -137,7 +137,7 @@ design, and the architect's design is reviewed by another agent.
 
 ### 4. Packages: the work, in Linear
 
-- **Who:** a task-breakdown tick (`PROTOCOL.md`, "Task-breakdown ticks", "A merged
+- **Who:** a pm tick (`PROTOCOL.md`, "PM ticks", "A merged
   technical design"), once the owner merges the design: the merge files a work
   item for it, "Task breakdown: <slug>", labelled `swarm/task-breakdown` (couchy-design's
   `tech-design-handoff.yml`), and Linear moves the "Technical design" work item
@@ -156,7 +156,7 @@ design, and the architect's design is reviewed by another agent.
 
 ### 5. Task breakdown: for work that did not come through the architect
 
-- **Who:** a task-breakdown tick (`PROTOCOL.md`, "Task-breakdown ticks").
+- **Who:** a pm tick (`PROTOCOL.md`, "PM ticks").
 - **When:** a bug, a one-screen change, or a work item filed by hand that the
   owner labels `swarm/task-breakdown`. A feature's packages arrive broken down from
   stage 4 and skip this.
@@ -238,14 +238,14 @@ design, and the architect's design is reviewed by another agent.
 | From | To | When | How |
 | --- | --- | --- | --- |
 | Architect | Design agent and owner | The spec cannot be built as written, or one part costs far more than the rest | A question on the work item before the design's PR opens, with options and what each costs; a part that only costs more goes in "What the spec costs most" |
-| Task-breakdown agent | Architect | An entry of the issue sequence can't be filed as written | A comment on the "Task breakdown: <slug>" work item, and Needs Human; the owner moves the "Technical design" one back to Todo |
+| PM | Architect | An entry of the issue sequence can't be filed as written | A comment on the "Task breakdown: <slug>" work item, and Needs Human; the owner moves the "Technical design" one back to Todo |
 | Builder | Architect | The design section is wrong | Pause the work item with the question |
 | Sweep | Architect | A work item passes its expected pull request count | The stop, and a line on the desk |
 | Owner (QA) | Builder | A check fails | Back to Todo with a comment |
 | Audit | Architect and owner | A new kind of smell | The report; the architect turns what the owner accepts into rules |
 
 Nothing goes back by an agent quietly doing another role's job. A builder that
-redesigns, a task-breakdown tick that changes scope, or an architect that changes a screen
+redesigns, a pm tick that changes scope, or an architect that changes a screen
 has skipped the check that role exists for.
 
 ## What the owner reads, and when

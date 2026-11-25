@@ -22,7 +22,7 @@ import { REVIEWED, checkToWaitFor, isReviewable, reviewedStatus } from './lib/ru
 /**
  * Posts the status for one PR unless its head already carries the same one. Returns { line, state }:
  * the line to log and the status's state.
- * `creator` (REVIEWED_CREATOR, e.g. `getcouchy-swarm[bot]`) counts only that account's statuses as
+ * `creator` (REVIEWED_CREATOR, e.g. `acme-swarm[bot]`) counts only that account's statuses as
  * already there: a ruleset that requires `reviewed` from one app ignores the same status from another,
  * so one GitHub Actions left behind must not stop this app writing its own.
  */

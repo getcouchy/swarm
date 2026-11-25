@@ -1,3 +1,5 @@
+<!-- Rendered from templates/TICK.md with the settings (swarm.config.json). Don't edit this file: change the template, or the settings, and run `npm run docs`. -->
+
 # Running a scheduled tick
 
 Your scheduled task's prompt is one sentence that names you, your repositories
@@ -21,7 +23,7 @@ instructions to every scheduled tick, as if they were in your prompt.
    once: `git clone --depth 1 https://github.com/<repo>` with a generous
    command timeout (about 10 minutes). Never run a second clone or fetch of
    it at the same time: the session allows two git transfers per repository,
-   and a third fails them all. Attach no other repository (a task-breakdown tick
+   and a third fails them all. Attach no other repository (a pm or architect tick
    also attaches getcouchy/couchy-design: "The tick").
 3. Clone this repository beside it, read-only:
    `git clone --depth 1 https://github.com/getcouchy/swarm ../swarm`
@@ -41,13 +43,14 @@ instructions to every scheduled tick, as if they were in your prompt.
 
 ## The tick
 
-Your prompt says "run your tick" (a regular tick), "run your focus tick" (a
-builder: PROTOCOL.md, "Builder ticks"; set `AGENT_ROLE=focus`), "run your
-task-breakdown tick" (PROTOCOL.md, "Task-breakdown ticks"; set
-`AGENT_ROLE=task-breakdown`; older prompts say "shaping tick"), or
+Your prompt says which role you run as (PROTOCOL.md, "Roles"): "run your tick"
+(a general tick), "run your builder tick" (PROTOCOL.md, "Builder ticks"; set
+`AGENT_ROLE=builder`; older prompts say "focus tick"), "run your pm tick"
+(PROTOCOL.md, "PM ticks"; set `AGENT_ROLE=pm`; older prompts say
+"task-breakdown tick" or "shaping tick"), or
 "run your architect tick" (ARCHITECT.md; set `AGENT_ROLE=architect`, and read
 that file after PROTOCOL.md). A
-task-breakdown tick that takes a `swarm/design` job, and every architect tick, also clones
+pm tick that takes a `swarm/design` job, and every architect tick, also clones
 getcouchy/couchy-design beside `<repo>` (once, with the same care as step 2)
 and opens its design PR there; that is the one other repository it works in. `<repo>` is your home
 repository, and your heartbeat goes on the open `swarm/desk` work item that
@@ -55,7 +58,7 @@ belongs to it. Take only work items that belong to one of `<repos>`; for one
 that belongs to another than `<repo>`, clone that repository beside `<repo>`
 (once, with the same care as step 2) before you work in it.
 
-A regular tick: fix `swarm/pr` PRs that need it, keep auto-merge right,
+A general tick: fix `swarm/pr` PRs that need it, keep auto-merge right,
 review, carry on unfinished drafts, then start one new work item from Todo,
 taking the first step that applies and repeating until the tick ends.
 

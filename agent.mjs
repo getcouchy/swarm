@@ -13,36 +13,42 @@
 // (an old clone, or the branch of a swarm PR), origin/main's copy is run
 // instead, from a temporary directory.
 //   node ../swarm/agent.mjs next --look      the same, without claiming
-//   node ../swarm/agent.mjs more --started=<ISO time> [--wrote=12,15] [--skip=COUCHYUX-12,57]
+//   node ../swarm/agent.mjs more --started=<ISO time> [--wrote=12,15] [--skip=ABC-12,57]
 //                                                after any job: the next one, while the tick has time left;
 //                                                --wrote lists the PRs this session wrote, which it won't review;
 //                                                --skip, the work items and PRs it passed over, not to offer again
 //   node ../swarm/agent.mjs finish           the end of the tick: take my lock off everything
-//   node ../swarm/agent.mjs claim COUCHYUX-12   lock one work item (by key) or PR (by number)
-//   node ../swarm/agent.mjs release COUCHYUX-12 "why"   unlock it, with a comment
-//   node ../swarm/agent.mjs needs-human COUCHYUX-12 "question"
+//   node ../swarm/agent.mjs claim ABC-12   lock one work item (by key) or PR (by number)
+//   node ../swarm/agent.mjs release ABC-12 "why"   unlock it, with a comment
+//   node ../swarm/agent.mjs needs-human ABC-12 "question"
 //                                                hand it to a person: the comment, then swarm/needs-human
 //   node ../swarm/agent.mjs hold 57 "what it waits for"
 //                                                hold a PR's merge: the comment, then swarm/hold
-//   node ../swarm/agent.mjs show COUCHYUX-12      a work item as Markdown, with its comments and attachments
-//   node ../swarm/agent.mjs images COUCHYUX-12    download its description's images and its attachments to read
-// A task-breakdown tick also has describe, create, blocked-by, labels, attach and
-// submit (breakdown.mjs; PROTOCOL.md, "Task-breakdown ticks").
+//   node ../swarm/agent.mjs show ABC-12      a work item as Markdown, with its comments and attachments
+//   node ../swarm/agent.mjs images ABC-12    download its description's images and its attachments to read
+// A pm tick also has describe, create, blocked-by, labels, attach and
+// submit (breakdown.mjs; PROTOCOL.md, "PM ticks").
 //
 // Work items are in the tracker (workitems.mjs) and pull requests on GitHub (github.mjs).
 // A tick covers every repository in AGENT_REPOS (default: GITHUB_REPOSITORY and
-// getcouchy/couchy-agent), and each job names its `repo`. For a PR in another
+// the others the settings list), and each job names its `repo`. For a PR in another
 // repository than the first, write it with the repository:
-// `claim getcouchy/couchy-agent#12`, `--wrote=12,getcouchy/couchy-agent#15`.
+// `claim acme/api#12`, `--wrote=12,acme/api#15`.
+//
+// The settings (the repositories, the labels' names, a tick's times) are in
+// swarm.config.json beside this file, or the file SWARM_CONFIG names
+// (lib/config.mjs). The variables below are each tick's own, and win.
 //
 // AGENT_NAME is this agent's name (codex, grok, claude-2…), which makes its
 // label swarm/agent/<name>; AGENT_CAN lists what its sandbox has, matching
-// swarm/needs/* labels ("ios-sim,design"); AGENT_ROLE=focus runs a builder tick
-// (PROTOCOL.md, "Builder ticks"), AGENT_ROLE=task-breakdown a task-breakdown tick ("Task-breakdown ticks"),
-// AGENT_ROLE=architect an architect tick (ARCHITECT.md).
-// AGENT_TICK_MINUTES (20) and AGENT_TICK_CEILING (45) are the tick's limit and
-// ceiling, in minutes (PROTOCOL.md, "When a tick ends").
-// Needs GITHUB_TOKEN and GITHUB_REPOSITORY (default getcouchy/couchy), and
+// swarm/needs/* labels ("ios-sim,design"); AGENT_ROLE is the tick's role
+// (PROTOCOL.md, "Roles"): general when unset, builder ("Builder ticks"), pm
+// ("PM ticks") or architect (ARCHITECT.md). The names roles had before still
+// work: focus for builder, task-breakdown and shape for pm.
+// AGENT_TICK_MINUTES and AGENT_TICK_CEILING are the tick's limit and
+// ceiling, in minutes (PROTOCOL.md, "When a tick ends"; the settings' `tick`
+// when unset: 20 and 45 by default).
+// Needs GITHUB_TOKEN and GITHUB_REPOSITORY (else the settings' first repository), and
 // the work item tracker's credentials (Linear's: linear.mjs).
 // TICK_EVENTS_FILE, when set, gets one JSON line per command that ran: the
 // job, the queue it came from, the locks taken and released, the handoff, the
@@ -55,7 +61,8 @@ import { run, UsageError, writeEvent } from './lib/commands.mjs';
 import { reposFromEnv } from './lib/github.mjs';
 import { providerFromEnv, tracker } from './lib/workitems.mjs';
 import { syncHere, toolsCommit, toolsFromMain } from './lib/preflight.mjs';
-import { isValidProvider } from './lib/rules.mjs';
+import { config } from './lib/config.mjs';
+import { ROLES, isValidProvider, roleOf } from './lib/rules.mjs';
 import { timeCommand } from './lib/timing.mjs';
 
 const [cmd, ...args] = process.argv.slice(2);
@@ -67,9 +74,13 @@ if (!isValidProvider(me)) {
 // Before anything that reaches the network: the fetch below can hang too.
 timeCommand(process.env.TICK_EVENTS_FILE, cmd);
 const can = new Set((process.env.AGENT_CAN ?? '').split(',').map((s) => s.trim()).filter(Boolean));
-const asked = process.env.AGENT_ROLE === 'shape' ? 'task-breakdown' : process.env.AGENT_ROLE; // the old role still works
-const role = ['focus', 'task-breakdown', 'architect'].includes(asked) ? asked : 'all';
-const ceiling = Number(process.env.AGENT_TICK_CEILING) || 45;
+const role = roleOf(process.env.AGENT_ROLE);
+if (!role) {
+  // Not a quiet fall back to a general tick: an architect told to run as `architekt` would start building.
+  console.error(`AGENT_ROLE=${process.env.AGENT_ROLE}: no such role. Leave it unset for a general tick, or set one of: ${ROLES.join(', ')}.`);
+  process.exit(2);
+}
+const ceiling = Number(process.env.AGENT_TICK_CEILING) || config.tick.ceiling;
 // How the agent ran this script, for the `then` commands it prints; a copy run
 // from origin/main is handed the original's path.
 const entry = process.env.SWARM_ENTRY || relative(process.cwd(), fileURLToPath(import.meta.url));
@@ -84,7 +95,7 @@ if (!process.env.AGENT_NO_SYNC && !process.env.AGENT_TOOLS_FROM_MAIN) {
     console.error(`tools: ${e.message.split('\n')[0]}`); // not a git checkout, or no network: carry on with these
   }
   if (current) {
-    console.error("tools: this clone of getcouchy/swarm differs from origin/main's; running origin/main's. To run local edits to the tools, set AGENT_NO_SYNC=1.");
+    console.error("tools: this clone of the swarm's tools differs from origin/main's; running origin/main's. To run local edits to the tools, set AGENT_NO_SYNC=1.");
     const again = spawnSync(process.execPath, [current, ...process.argv.slice(2)], { stdio: 'inherit', env: { ...process.env, AGENT_TOOLS_FROM_MAIN: '1', SWARM_ENTRY: entry } });
     process.exit(again.status ?? 1);
   }
@@ -108,7 +119,7 @@ if (cmd === 'next' && !process.env.AGENT_NO_SYNC) {
 }
 let result;
 try {
-  result = await run(cmd, args, { clients, me, can, role, ceiling, minutes: Number(process.env.AGENT_TICK_MINUTES) || 20, entry, checkout, swarm: toolsCommit() });
+  result = await run(cmd, args, { clients, me, can, role, ceiling, minutes: Number(process.env.AGENT_TICK_MINUTES) || config.tick.minutes, entry, checkout, swarm: toolsCommit() });
 } catch (e) {
   if (!(e instanceof UsageError)) throw e;
   console.error(e.message);

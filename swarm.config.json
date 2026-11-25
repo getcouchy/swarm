@@ -1,0 +1,39 @@
+{
+  "name": "Couchy",
+  "owner": "Eric",
+  "toolsRepo": "getcouchy/swarm",
+  "repos": ["getcouchy/couchy", "getcouchy/couchy-agent"],
+  "designRepo": "getcouchy/couchy-design",
+  "baseBranch": "main",
+  "labels": {
+    "namespace": "swarm/",
+    "aliases": {
+      "needs-human": "needsHuman",
+      "merge/hold": "hold",
+      "focus": "focus",
+      "agent-desk": "desk",
+      "swarm/groom": "taskBreakdown",
+      "agent/": "agent",
+      "needs/": "needs"
+    }
+  },
+  "qa": {
+    "labels": ["platform/web", "platform/ios", "area/app"],
+    "skipLabels": ["area/api", "area/tooling", "area/ci"]
+  },
+  "tick": { "minutes": 20, "ceiling": 45 },
+  "sweep": { "claimMinutes": 90, "readyHours": 4, "reviewHours": 4, "fixHours": 2, "holdHours": 24, "heartbeatHours": 8 },
+  "bots": { "prefix": "couchy-", "org": "getcouchy", "env": "COUCHY" },
+  "tracker": "linear",
+  "linear": {
+    "teams": {
+      "getcouchy/couchy": "COU",
+      "getcouchy/couchy-agent": "COU",
+      "getcouchy/agent-runner": "COU"
+    },
+    "states": { "qa": "Review", "needsHuman": "Needs Human" },
+    "workspace": "couchy"
+  },
+  "moved": "moved.json",
+  "notes": "notes"
+}

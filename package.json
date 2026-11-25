@@ -4,5 +4,8 @@
   "type": "module",
   "description": "The protocol and tools for the coding agents that work on the getcouchy repositories",
   "engines": { "node": ">=20" },
-  "scripts": { "test": "node --test" }
+  "scripts": {
+    "test": "SWARM_CONFIG=\"$PWD/test/fixtures/swarm.config.json\" node --test",
+    "docs": "node render.mjs"
+  }
 }

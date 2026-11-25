@@ -22,6 +22,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { fromEnv } from './lib/github.mjs';
+import { config } from './lib/config.mjs';
 import { pushRun } from './lib/metrics.mjs';
 import { providerFromEnv, tracker } from './lib/workitems.mjs';
 import { finishedParts, focusOf } from './lib/tick.mjs';
@@ -190,7 +191,7 @@ export async function sweep(gh, { now = Date.now(), limits }) {
       locks = locks.filter((l) => !(l.number === issue.number && l.agent === loser));
     }
     const holder = claimWinner(issue);
-    // A task-breakdown tick holds Backlog work by design.
+    // A pm tick holds Backlog work by design.
     if (!isReady(issue) && !requestKind(issue)) {
       flag('Claims', `unapproved:${issue.number}`, `${refText(issue.number)} is held by ${holder} but is not ready (it is in ${issue.stage ?? 'no state'}).`, { number: issue.number, agent: holder });
     }
@@ -504,7 +505,7 @@ export function countLabelled(prev, labelled) {
 export function deskBody(overdue, now, counters, { comments = true, linked = [] } = {}) {
   const sections = [...new Set(overdue.map((o) => o.section))];
   return [
-    'What the agents (Claude, Codex, Grok…) are behind on, rewritten by every run of the Agent sweep (see `PROTOCOL.md` in getcouchy/swarm). ' +
+    'What the agents (Claude, Codex, Grok…) are behind on, rewritten by every run of the Agent sweep (see `PROTOCOL.md` in ' + (config.toolsRepo ?? 'the swarm\'s tools') + '). ' +
       (comments ? 'A comment is added once for each newly overdue item, so subscribing to this work item is enough. ' : '') +
       'The comments that say "last ticked" are the agents\' heartbeats; they edit their own.',
     '',
@@ -596,6 +597,7 @@ export function sweepMetrics(reg, { result, counters, migrated = 0, limits, now 
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const startedAt = Date.now();
+  // The settings' `sweep`, unless the job's own variable says otherwise.
   const hours = (name, dflt) => Number(process.env[name] || dflt);
   const github = fromEnv();
   const gh = tracker(github, await providerFromEnv(github.repo));
@@ -604,12 +606,13 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   for (const line of renamed) console.log(`renamed: ${line}`);
   for (const [name, color, description] of LABELS) await gh.ensureLabel(name, color, description);
   const limits = {
-    claim: hours('CLAIM_MINUTES', 90),
-    ready: hours('READY_HOURS', 4),
-    review: hours('REVIEW_HOURS', 4),
-    fix: hours('FIX_HOURS', 2),
-    hold: hours('HOLD_HOURS', 24),
-    heartbeat: hours('HEARTBEAT_HOURS', 8),
+    // AGENT_CLAIM_MINUTES is the name PROTOCOL.md gave this until it was rendered from the settings.
+    claim: hours('CLAIM_MINUTES', process.env.AGENT_CLAIM_MINUTES || config.sweep.claimMinutes),
+    ready: hours('READY_HOURS', config.sweep.readyHours),
+    review: hours('REVIEW_HOURS', config.sweep.reviewHours),
+    fix: hours('FIX_HOURS', config.sweep.fixHours),
+    hold: hours('HOLD_HOURS', config.sweep.holdHours),
+    heartbeat: hours('HEARTBEAT_HOURS', config.sweep.heartbeatHours),
   };
   const result = await sweep(gh, { limits });
   for (const f of result.fixed) console.log(`fixed: ${f}`);

@@ -19,7 +19,11 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { fromEnv } from './lib/github.mjs';
+import { config } from './lib/config.mjs';
 import { NEEDS_HUMAN, canonical, labelNames } from './lib/rules.mjs';
+
+// What a page calls this swarm: the settings' `name`.
+const NAME = config.name;
 
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -36,14 +40,14 @@ export function question(comments) {
  */
 export function pageFor(event, { open, asked = '' }) {
   const item = event.issue ?? event.pull_request;
-  if (!item) return { state: 'test', title: 'Couchy: test page', text: `This is a test. ${open} waiting on you.`, priority: 3, tags: 'test_tube', open };
+  if (!item) return { state: 'test', title: `${NAME}: test page`, text: `This is a test. ${open} waiting on you.`, priority: 3, tags: 'test_tube', open };
   const mine = canonical(event.label?.name ?? '') === NEEDS_HUMAN; // under its old name too
   const kind = event.pull_request || item.pull_request ? 'PR' : 'Issue';
   const base = { number: item.number, url: item.html_url, open };
   if (event.action === 'labeled' && mine) {
     return {
       ...base, state: 'waiting', priority: 5, tags: 'rotating_light',
-      title: `Couchy needs you: #${item.number} ${clip(item.title, 80)}`,
+      title: `${NAME} needs you: #${item.number} ${clip(item.title, 80)}`,
       text: `${asked || `${kind} #${item.number} is waiting on a decision from you.`}\n\n${open} waiting on you.`,
     };
   }
@@ -52,7 +56,7 @@ export function pageFor(event, { open, asked = '' }) {
   if (!cleared) return null;
   return {
     ...base, state: 'cleared', priority: 2, tags: 'white_check_mark',
-    title: `Couchy: #${item.number} no longer needs you`,
+    title: `${NAME}: #${item.number} no longer needs you`,
     text: open ? `${open} still waiting on you.` : 'Nothing is waiting on you.',
   };
 }
