@@ -1,7 +1,7 @@
 // node --test
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DEFAULT_TEAMS, appToken, linearClient, linearPlace, protocolName } from '../lib/linear.mjs';
+import { DEFAULT_TEAMS, appToken, linearClient, linearFromEnv, linearPlace, protocolName, sharedReads } from '../lib/linear.mjs';
 import { LabelGroupTaken, PROVIDER_METHODS, assertProvider, currentKey, isKey, parsePairs, tracker } from '../lib/workitems.mjs';
 import { bodyBlockers, closingIssues, linkedPulls, linkedTo, needsQA, partOfIssues, whyNotClaimable } from '../lib/rules.mjs';
 import { claim, focusOf, next, queueOf } from '../lib/tick.mjs';
@@ -31,10 +31,10 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
   const attachments = {};
   let left = limit;
   let n = 0;
-  const byId = (id) => issues.find((i) => i.id === id || `COU-${i.number}` === id);
+  const byId = (id) => issues.find((i) => i.id === id || (i.key ?? `COU-${i.number}`) === id);
   const state = (id) => states.find((s) => s.id === id);
   const raw = (i) => ({
-    id: i.id, identifier: `COU-${i.number}`, title: i.title, description: i.description, priority: i.priority,
+    id: i.id, identifier: i.key ?? `COU-${i.number}`, title: i.title, description: i.description, priority: i.priority,
     url: `https://linear.app/couchy/issue/COU-${i.number}/x`, createdAt: i.createdAt, updatedAt: i.updatedAt,
     state: (({ id, name, type }) => ({ id, name, type }))(state(i.stateId)),
     labels: { nodes: i.labelIds.map((id) => labels.find((l) => l.id === id)) },
@@ -42,7 +42,7 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
     cycle: i.sprint ? { id: 'cy1', isActive: true } : i.cycleId ? { id: i.cycleId, isActive: false } : null,
     project: i.projectId ? { id: i.projectId } : null,
   });
-  const rel = (i) => ({ identifier: `COU-${i.number}`, state: { type: state(i.stateId).type, name: state(i.stateId).name }, labels: { nodes: i.labelIds.map((id) => labels.find((l) => l.id === id)) } });
+  const rel = (i) => ({ identifier: i.key ?? `COU-${i.number}` });
   const page = (nodes) => ({ nodes, pageInfo: { hasNextPage: false, endCursor: null } });
   const ok = (data, headers = {}) => ({
     ok: true, status: 200, json: async () => ({ data }), text: async () => '', headers: { get: (h) => headers[h.toLowerCase()] ?? null },
@@ -59,16 +59,25 @@ function fakeLinear({ issues = [], labels = [], states = STATES, relations = [],
     switch (field) {
       case 'organization': return reply({ organization: { urlKey: 'couchy' }, teams: { nodes: [{ id: 't1', key: 'COU', states: { nodes: states } }] } });
       case 'issueLabels': return reply({ issueLabels: page(labels.filter((l) => !v.name || l.name === v.name).map((l) => ({ team: null, isGroup: false, parent: null, retiredAt: null, ...l }))) });
-      case 'issues': return reply({ issues: page(issues.map(raw)) });
+      // As Linear filters: every condition of an object holds, and one of an `or` does.
+      case 'issues': {
+        const meets = (i, f) => Object.entries(f).every(([k, want]) => {
+          if (k === 'or') return want.some((w) => meets(i, w));
+          if (k === 'team') return !i.key; // an item with a key of its own is another team's
+          // An item with no parent meets what is asked of one, unless `null` says not.
+          if (k === 'parent') return i.parentId ? meets(byId(i.parentId), { ...want, null: undefined }) : want.null !== false;
+          if (k === 'null') return true;
+          if (k === 'labels') return i.labelIds.some((id) => want.name.in.includes(labels.find((l) => l.id === id).name));
+          if (k !== 'state') throw new Error(`fake Linear: no filter on ${k}`);
+          const st = state(i.stateId);
+          return want.type ? !want.type.nin.includes(st.type) : want.name.in.includes(st.name);
+        });
+        return reply({ issues: page(issues.filter((i) => meets(i, v.filter)).map(raw)) });
+      }
+      case 'issueRelations': return reply({ issueRelations: page(relations.map((r) => ({ type: r.type, issue: { identifier: rel(byId(r.from)).identifier }, relatedIssue: { identifier: rel(byId(r.to)).identifier } }))) });
       case 'issue': {
         const i = byId(v.id);
         if (!i) return { ok: true, status: 200, json: async () => ({ errors: [{ message: 'Entity not found: Issue' }] }), headers: { get: () => null } };
-        if (/relations\(/.test(query)) {
-          return reply({ issue: {
-            relations: page(relations.filter((r) => r.from === i.id).map((r) => ({ type: r.type, relatedIssue: rel(byId(r.to)) }))),
-            inverseRelations: page(relations.filter((r) => r.to === i.id).map((r) => ({ type: r.type, issue: rel(byId(r.from)) }))),
-          } });
-        }
         if (/comments\(/.test(query)) return reply({ issue: { comments: page(comments[i.id] ?? []) } });
         if (/attachments\(/.test(query)) return reply({ issue: { attachments: page(attachments[i.id] ?? []) } });
         if (/history\(/.test(query)) return reply({ issue: { history: page(history[i.id] ?? []) } });
@@ -205,6 +214,133 @@ test('the rate limit is waited out, not failed', async () => {
   assert.ok(waits.length > 0, 'waits once the key has one request left');
 });
 
+/** A Linear that refuses `times` requests, each answer with `headers`, then answers. */
+function limited(times, headers = {}) {
+  const calls = { n: 0 };
+  const fetchImpl = async () => (calls.n++ < times
+    ? { ok: false, status: 400, headers: { get: (h) => headers[h] ?? null }, json: async () => ({ errors: [{ message: 'Rate limit exceeded', extensions: { code: 'RATELIMITED' } }] }) }
+    : { ok: true, status: 200, headers: { get: (h) => headers[h] ?? null }, json: async () => ({ data: { commentUpdate: { success: true } } }) });
+  const waits = [];
+  const said = [];
+  const c = linearClient({ auth: { get: async () => 'k' }, team: 'COU', repo: 'o/r', fetchImpl, log: (l) => said.push(l), sleep: async (ms) => { waits.push(ms); }, now: () => 0 });
+  return { c, calls, waits, said };
+}
+
+test('a refusal for the budget is waited on for about a minute in all, and said; never until a reset an hour away', async () => {
+  const spent = { 'x-ratelimit-complexity-remaining': '1216', 'x-ratelimit-requests-remaining': '4998', 'x-ratelimit-requests-reset': '3600000' };
+  const soon = limited(2, spent);
+  await soon.c.editComment('c1', 'x');
+  assert.equal(soon.calls.n, 3, 'the budget refills as it goes, so it asks again');
+  assert.ok(soon.waits.every((ms) => ms <= 20_000), `${soon.waits}`);
+  assert.equal(soon.said.length, 2);
+  assert.match(soon.said[0], /^Linear refused a request: 1216 of its complexity budget and 4998 requests are left\. Asking again in 15 s\.$/);
+
+  const never = limited(99, spent);
+  await assert.rejects(never.c.editComment('c1', 'x'), (e) => /Linear's budget is spent \(1216 of its complexity budget and 4998 requests are left\): run this again in a few minutes/.test(e.message) && e.status === 429);
+  const waited = never.waits.reduce((a, b) => a + b, 0);
+  assert.ok(waited >= 45_000 && waited <= 60_000, `waited ${waited}`);
+
+  // What Linear says to wait is waited when it is short, and is a reason to stop when it isn't.
+  const told = limited(1, { 'retry-after': '3' });
+  await told.c.editComment('c1', 'x');
+  assert.deepEqual(told.waits, [3000]);
+  const long = limited(99, { 'retry-after': '900' });
+  await assert.rejects(long.c.editComment('c1', 'x'), /budget is spent/);
+  assert.deepEqual([long.waits, long.calls.n], [[], 1]);
+});
+
+test('with no request left until a distant reset it stops rather than wait for it', async () => {
+  const { c, waits, calls } = limited(0, { 'x-ratelimit-requests-remaining': '1', 'x-ratelimit-requests-reset': '3600000' });
+  await c.editComment('c1', 'x');
+  await assert.rejects(c.editComment('c1', 'x'), /budget is spent/);
+  assert.deepEqual([waits, calls.n], [[], 1]);
+});
+
+test('the list has what is open, its finished parts, and no other finished work', async () => {
+  const fake = fakeLinear({
+    states: [...STATES, { ...QA_STATE, type: 'completed' }],
+    labels: [{ id: 'l-b', name: 'blocked', parent: { id: 'g', name: 'swarm' } }, { id: 'l-x', name: 'app' }],
+    issues: [
+      item(1), item(2, { stateId: 's-done' }), item(3, { stateId: 's-cancel' }), item(4, { stateId: 's-qa' }), item(5, { stateId: 's-backlog' }), item(6, { stateId: 's-human' }),
+      item(7, { stateId: 's-doing' }), item(8, { stateId: 's-done', parentId: 'i7' }), item(9, { stateId: 's-cancel', parentId: 'i7' }), item(10, { stateId: 's-done', parentId: 'i2' }),
+      item(11, { stateId: 's-done', labelIds: ['l-x', 'l-b'] }), item(12, { stateId: 's-done', labelIds: ['l-x'] }),
+    ],
+  });
+  const c = client(fake);
+  assert.deepEqual((await c.all()).map((i) => i.key).sort((a, b) => a.slice(4) - b.slice(4)), ['COU-1', 'COU-4', 'COU-5', 'COU-6', 'COU-7', 'COU-8', 'COU-9', 'COU-11']);
+  const items = t({ repo: 'getcouchy/couchy' }, c);
+  assert.deepEqual((await items.inQA()).map((i) => i.number), ['COU-4'], 'Review, whatever type of state it is');
+  assert.deepEqual(await items.subIssues('COU-7'), ['COU-8', 'COU-9']);
+  assert.deepEqual((await items.labelledItems('swarm/blocked')).map((i) => i.number), ['COU-11'], 'the sweep takes the label off finished work');
+  assert.deepEqual([items.seen('COU-7').title, items.seen('COU-2')], ['Item 7', null]);
+  // One that isn't in it is still read by its key.
+  assert.equal((await items.issue('COU-2')).state, 'closed');
+  assert.equal(items.seen('COU-2').title, 'Item 2', 'and remembered');
+  await items.comment('COU-12', 'x');
+  assert.equal(fake.comments.i12.length, 1);
+});
+
+test('the clients of one team read its list, labels and relations once between them', async () => {
+  const fake = fakeLinear({ issues: [item(1), item(2)], relations: [{ from: 'i1', to: 'i2', type: 'blocks' }] });
+  const shared = sharedReads();
+  const a = client(fake, { shared });
+  const b = client(fake, { shared, repo: 'getcouchy/couchy-agent', defaultRepo: 'getcouchy/couchy' });
+  const [x, y] = await Promise.all([a.all(), b.all()]);
+  assert.deepEqual(x.map((i) => i.key), y.map((i) => i.key));
+  await Promise.all([a.relations('COU-2'), b.relations('COU-2')]);
+  for (const call of ['query organization', 'query issueLabels', 'query issues']) assert.equal(fake.calls.filter((c) => c === call).length, 1, call);
+  await Promise.all([a.relations('COU-1'), b.relations('COU-1')]);
+  assert.equal(fake.calls.filter((c) => c === 'query issueRelations').length, 1, 'every relation, read once');
+  assert.ok(!fake.calls.includes('query issue'), 'and none by itself');
+  // What one writes the other sees, and a list that failed to load is asked for again.
+  await a.setStage('COU-1', 'completed');
+  assert.equal((await b.all()).find((i) => i.key === 'COU-1').stage, 'completed');
+  let fails = true;
+  const flaky = client(fake, { fetchImpl: async (...args) => {
+    if (fails) throw new Error('network');
+    return fake.fetchImpl(...args);
+  } });
+  await assert.rejects(flaky.all(), /network/);
+  fails = false;
+  assert.equal((await flaky.all()).length, 1, 'COU-1 is done now');
+  // A client made by itself shares nothing.
+  fake.calls.length = 0;
+  await client(fake).all();
+  assert.equal(fake.calls.filter((c) => c === 'query issues').length, 1);
+});
+
+test('whether the other end of a relation is open is read from the list', async () => {
+  const fake = fakeLinear({
+    states: [...STATES, QA_STATE],
+    labels: [{ id: 'l-td', name: 'tech-design', parent: { id: 'g', name: 'swarm' } }],
+    issues: [item(1), item(2), item(3, { stateId: 's-done' }), item(4, { stateId: 's-qa' }), item(5, { stateId: 's-qa', labelIds: ['l-td'] }), { ...item(6), key: 'OPS-6' }, { ...item(7, { stateId: 's-done' }), key: 'OPS-7' }],
+    relations: [2, 3, 4, 5, 6, 7].map((n) => ({ from: `i${n}`, to: 'i1', type: 'blocks' })).concat({ from: 'i1', to: 'i2', type: 'blocks' }, { from: 'i2', to: 'i1', type: 'related' }),
+  });
+  const c = client(fake);
+  const blockers = async () => (await c.relations('COU-1')).blockedBy.filter((r) => r.open).map((r) => r.key);
+  // Finished work isn't in the list; a merged design in Review still blocks; another team's item is asked about.
+  assert.deepEqual(await blockers(), ['COU-2', 'COU-5', 'OPS-6']);
+  assert.deepEqual((await c.relations('COU-1')).blocking, [{ key: 'COU-2', open: true }]);
+  assert.equal(fake.calls.filter((x) => x === 'query issue').length, 2, "only another team's, once each");
+  assert.deepEqual((await c.all()).map((i) => i.key).filter((k) => k.startsWith('OPS')), [], "another team's item doesn't join this team's work");
+  // A blocker this client finishes stops blocking, and a relation it makes is there.
+  await c.setStage('COU-2', 'completed');
+  assert.deepEqual(await blockers(), ['COU-5', 'OPS-6']);
+  await c.setStage('COU-2', 'unstarted');
+  await c.relate('COU-5', 'blocked_by', ['COU-2']);
+  assert.deepEqual((await c.relations('COU-5')).blockedBy, [{ key: 'COU-2', open: true }]);
+  // Nothing blocked: nothing in either direction.
+  assert.deepEqual(await client(fakeLinear({ issues: [item(1)] })).relations('COU-1'), { blocking: [], blockedBy: [] });
+});
+
+test('from the environment, the repositories of one team share their reads', () => {
+  const env = { LINEAR_API_KEY: 'k', LINEAR_TEAMS: 'o/a=COU,o/b=COU,o/c=OPS' };
+  const of = (repo) => linearFromEnv(repo, env).shared;
+  assert.equal(of('o/a'), of('o/b'));
+  assert.notEqual(of('o/a'), of('o/c'));
+  assert.notEqual(of('o/a'), linearFromEnv('o/a', { ...env }).shared, 'another environment is another sign-in');
+});
+
 test('a 401 renews the app token once; client credentials are cached until a day before they expire', async () => {
   const fake = fakeLinear({ issues: [item(1)] });
   let first = true;
@@ -255,7 +391,7 @@ test('blocking relations name the open items that wait, read once with the block
   assert.equal(one.priority, 'urgent');
   assert.deepEqual(await items.blocking(one), ['COU-2']);
   await items.blockers(one);
-  assert.equal(fake.calls.filter((c) => c === 'query issue').length, 1);
+  assert.equal(fake.calls.filter((c) => c === 'query issueRelations').length, 1);
 });
 
 test('a PR names a work item by key, old key, or the GitHub issue it was copied from', async () => {
