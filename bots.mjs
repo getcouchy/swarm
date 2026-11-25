@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// A GitHub identity of its own for each agent (see README.md in getcouchy/swarm).
+// A GitHub identity of its own for each agent (see README.md).
 //
 // Each agent name (codex, grok, claude-2…) gets a private GitHub App in the
-// org, `couchy-<name>`, which comments, reviews and pushes as
-// `couchy-<name>[bot]`. Nothing here needs a dependency beyond Node 20+.
+// org, `<prefix><name>`, which comments, reviews and pushes as
+// `<prefix><name>[bot]`. The prefix, the org and the first word of the
+// variables below are the settings' `bots` (lib/config.mjs): `acme-`, `acme`
+// and `ACME`, say. Nothing here needs a dependency beyond Node 20+.
 //
 //   node ../swarm/bots.mjs create codex       make the app (two clicks in a browser)
 //   node ../swarm/bots.mjs list               the apps made on this machine, and whether each is installed
@@ -13,9 +15,10 @@
 //   eval "$(node ../swarm/bots.mjs env [codex])"   GH_TOKEN, AGENT_NAME and the git author, as exports
 //   node ../swarm/bots.mjs git-setup [codex]  this clone commits and pushes as the bot
 //
-// Leave the name out inside a sandbox that has the COUCHY_BOT_* variables
-// `export` printed; with a name, the app is read from COUCHY_BOTS_DIR
-// (~/.config/couchy-bots/<name>/). COUCHY_ORG defaults to getcouchy.
+// Leave the name out inside a sandbox that has the <ENV>_BOT_* variables
+// `export` printed (SWARM_BOT_* unless `bots.env` says otherwise); with a
+// name, the app is read from <ENV>_BOTS_DIR (~/.config/<env>-bots/<name>/).
+// <ENV>_ORG names the org when `bots.org` doesn't.
 
 import { createSign, randomBytes } from 'node:crypto';
 import { spawn, execFileSync } from 'node:child_process';
@@ -24,13 +27,21 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { config } from './lib/config.mjs';
 import { agentFromLogin, isValidProvider } from './lib/rules.mjs';
 
 const API = 'https://api.github.com';
-const HEADERS = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'couchy-bots' };
+const HEADERS = { Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'swarm-bots' };
 
-/** The app's name and its bot's login stem: `couchy-codex` → `couchy-codex[bot]`. */
-export const appName = (agent) => `couchy-${agent}`;
+// The first word of every variable this tool reads and prints: SWARM_BOT_KEY, SWARM_BOTS_DIR, SWARM_ORG.
+const ENV = config.bots.env;
+const botVar = (name) => `${ENV}_BOT_${name}`;
+
+/** The app's name and its bot's login stem: `acme-codex` → `acme-codex[bot]`. */
+export function appName(agent) {
+  if (!config.bots.prefix) throw new Error('the settings give no `bots.prefix`: set one in swarm.config.json ("acme-"), so each agent\'s app is named <prefix><agent>');
+  return `${config.bots.prefix}${agent}`;
+}
 
 export { agentFromLogin };
 
@@ -51,7 +62,7 @@ export function manifest(agent, { redirectUrl, org }) {
   return {
     name: appName(agent),
     url: `https://github.com/${org}`,
-    description: `The ${agent} coding agent's identity in ${org}. Made by getcouchy/swarm bots.mjs.`,
+    description: `The ${agent} coding agent's identity in ${org}. Made by the swarm's bots.mjs.`,
     public: false, // only this org can install it
     redirect_url: redirectUrl,
     hook_attributes: { url: `https://github.com/${org}`, active: false }, // no webhooks
@@ -131,7 +142,7 @@ export async function installationToken(id, { org, fetchImpl = fetch, now = Date
 
 // ---- where identities live ----
 
-export const botsDir = (env = process.env) => env.COUCHY_BOTS_DIR || path.join(os.homedir(), '.config', 'couchy-bots');
+export const botsDir = (env = process.env) => env[`${ENV}_BOTS_DIR`] || path.join(os.homedir(), '.config', `${ENV.toLowerCase()}-bots`);
 
 function writePrivate(file, text) {
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -156,27 +167,28 @@ export function loadIdentity(dir, agent) {
   return { ...id, pem: fs.readFileSync(path.join(base, 'private-key.pem'), 'utf8') };
 }
 
-/** The COUCHY_BOT_* lines a sandbox needs, the key base64'd onto one line. */
+/** The <ENV>_BOT_* lines a sandbox needs, the key base64'd onto one line. */
 export function exportBlock(id) {
   return [
-    `COUCHY_BOT_AGENT=${id.agent}`,
-    `COUCHY_BOT_APP_ID=${id.appId}`,
-    `COUCHY_BOT_SLUG=${id.slug}`,
-    `COUCHY_BOT_USER_ID=${id.userId ?? ''}`,
-    `COUCHY_BOT_KEY=${Buffer.from(id.pem).toString('base64')}`,
+    `${botVar('AGENT')}=${id.agent}`,
+    `${botVar('APP_ID')}=${id.appId}`,
+    `${botVar('SLUG')}=${id.slug}`,
+    `${botVar('USER_ID')}=${id.userId ?? ''}`,
+    `${botVar('KEY')}=${Buffer.from(id.pem).toString('base64')}`,
   ].join('\n');
 }
 
-/** An identity from COUCHY_BOT_* variables, or null if they aren't set. */
+/** An identity from the <ENV>_BOT_* variables, or null if they aren't set. */
 export function identityFromEnv(env = process.env) {
-  if (!env.COUCHY_BOT_APP_ID || !env.COUCHY_BOT_KEY) return null;
-  if (!isValidProvider(env.COUCHY_BOT_AGENT)) throw new Error('COUCHY_BOT_AGENT is missing or not an agent name; set all five lines `bots.mjs export` prints');
-  const key = env.COUCHY_BOT_KEY.trim();
+  const get = (name) => env[botVar(name)];
+  if (!get('APP_ID') || !get('KEY')) return null;
+  if (!isValidProvider(get('AGENT'))) throw new Error(`${botVar('AGENT')} is missing or not an agent name; set all five lines \`bots.mjs export\` prints`);
+  const key = get('KEY').trim();
   return {
-    agent: env.COUCHY_BOT_AGENT,
-    appId: Number(env.COUCHY_BOT_APP_ID),
-    slug: env.COUCHY_BOT_SLUG || appName(env.COUCHY_BOT_AGENT),
-    userId: env.COUCHY_BOT_USER_ID ? Number(env.COUCHY_BOT_USER_ID) : null,
+    agent: get('AGENT'),
+    appId: Number(get('APP_ID')),
+    slug: get('SLUG') || appName(get('AGENT')),
+    userId: get('USER_ID') ? Number(get('USER_ID')) : null,
     pem: key.startsWith('-----BEGIN') ? key.replace(/\\n/g, '\n') : Buffer.from(key, 'base64').toString('utf8'),
   };
 }
@@ -215,7 +227,7 @@ export function credentialAnswer(request, token) {
 function resolveIdentity(agent, env = process.env) {
   if (agent) return loadIdentity(botsDir(env), agent);
   const id = identityFromEnv(env);
-  if (!id) throw new Error('name an agent, or set the COUCHY_BOT_* variables `bots.mjs export <name>` prints');
+  if (!id) throw new Error(`name an agent, or set the ${ENV}_BOT_* variables \`bots.mjs export <name>\` prints`);
   return id;
 }
 
@@ -233,7 +245,7 @@ export function privateDir(dir) {
 
 /**
  * Where a token is cached: beside the app on the machine that made it, else in
- * COUCHY_BOTS_DIR/tokens/ (never a shared temp directory). With no private
+ * <ENV>_BOTS_DIR/tokens/ (never a shared temp directory). With no private
  * place to put it, nothing is cached and every call mints.
  */
 export function tokenCache(id, env = process.env) {
@@ -315,8 +327,13 @@ async function main(argv, env = process.env) {
   const [cmd, ...rest] = argv;
   const flags = Object.fromEntries(rest.filter((a) => a.startsWith('--')).map((a) => a.slice(2).split('=')));
   const [agent, ...more] = rest.filter((a) => !a.startsWith('--'));
-  const org = env.COUCHY_ORG || 'getcouchy';
   const dir = botsDir(env);
+  // Asked for only by the commands that reach GitHub: git runs its credential helper for every host.
+  const orgName = env[`${ENV}_ORG`] || config.bots.org;
+  const needOrg = () => {
+    if (!orgName) throw new Error(`no org: set \`bots.org\` in swarm.config.json, or ${ENV}_ORG`);
+    return orgName;
+  };
   if (agent && cmd !== 'git-credential' && !isValidProvider(agent)) {
     throw new Error(`"${agent}" is not an agent name: lower-case letters, digits and hyphens (see PROTOCOL.md)`);
   }
@@ -325,11 +342,12 @@ async function main(argv, env = process.env) {
     case 'create':
       if (!agent) throw new Error('usage: bots.mjs create <agent>');
       if (appName(agent).length > 34) throw new Error(`"${agent}" is too long: GitHub caps app names at 34 characters, so a name may have 27`);
-      await create(agent, { org, port: Number(flags.port ?? 8787), dir });
+      await create(agent, { org: needOrg(), port: Number(flags.port ?? 8787), dir });
       return;
     case 'list': {
       const names = fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => fs.existsSync(path.join(dir, n, 'app.json'))) : [];
       if (!names.length) console.log(`no apps in ${dir}`);
+      const org = names.length ? needOrg() : null;
       for (const name of names) {
         const id = loadIdentity(dir, name);
         const inst = await orgInstallation(id, { org }).catch((e) => ({ error: e.message }));
@@ -354,7 +372,7 @@ async function main(argv, env = process.env) {
           writePrivate(file, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(file, 'utf8')), userId: id.userId }, null, 2)}\n`);
         }
       }
-      const { token } = await installationToken(id, { org, cache: tokenCache(id, env) });
+      const { token } = await installationToken(id, { org: needOrg(), cache: tokenCache(id, env) });
       const { repositories } = await gh(fetch, 'GET', '/installation/repositories?per_page=100', { token });
       const who = gitIdentity(id);
       console.log(`${id.slug}[bot] for agent ${id.agent}`);
@@ -364,12 +382,12 @@ async function main(argv, env = process.env) {
     }
     case 'token': {
       const id = resolveIdentity(agent, env);
-      console.log((await installationToken(id, { org, cache: tokenCache(id, env) })).token);
+      console.log((await installationToken(id, { org: needOrg(), cache: tokenCache(id, env) })).token);
       return;
     }
     case 'env': {
       const id = resolveIdentity(agent, env);
-      console.log(envExports(id, (await installationToken(id, { org, cache: tokenCache(id, env) })).token, env));
+      console.log(envExports(id, (await installationToken(id, { org: needOrg(), cache: tokenCache(id, env) })).token, env));
       return;
     }
     case 'git-setup': {
@@ -393,7 +411,7 @@ async function main(argv, env = process.env) {
       if (action !== 'get') return;
       const request = fs.readFileSync(0, 'utf8');
       const id = resolveIdentity(named, env);
-      process.stdout.write(credentialAnswer(request, (await installationToken(id, { org, cache: tokenCache(id, env) })).token));
+      process.stdout.write(credentialAnswer(request, (await installationToken(id, { org: needOrg(), cache: tokenCache(id, env) })).token));
       return;
     }
     default:

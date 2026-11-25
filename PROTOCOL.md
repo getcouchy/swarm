@@ -1,3 +1,5 @@
+<!-- Rendered from templates/PROTOCOL.md with the settings (swarm.config.json). Don't edit this file: change the template, or the settings, and run `npm run docs`. -->
+
 # The agent protocol
 
 Several coding agents (Claude, Codex, Grok…, sometimes more than one of each)
@@ -15,25 +17,25 @@ win for that repository.
 ## Where the work is
 
 **Work items are in Linear** (https://linear.app/couchy, workspace `couchy`).
-The work for getcouchy/couchy, getcouchy/couchy-agent and
-getcouchy/agent-runner is in one team, **Couchy** (`COU`). A work item is a
-Linear issue, named by its key, `COU-12`. It belongs to getcouchy/couchy
-unless a label in the `repo` group (`repo/couchy-agent`, `repo/agent-runner`)
-names another. Projects are the epics; the team's current cycle is the sprint.
+The work for `getcouchy/couchy`, `getcouchy/couchy-agent` and `getcouchy/agent-runner` is in team `COU`. A work item is a
+Linear issue, named by its key, `COU-12`. A team's work belongs to the
+first repository the settings list for that team, unless a label in the
+`repo` group (`repo/<the repository's name>`) names another.
+Projects are the epics; the team's current cycle is the sprint.
 
 The work moved here from Plane. An old Plane key (`COUCHYUX-12`, `RUNNER-3`)
 or the number of the GitHub issue an item was copied from still reaches the
 item (`moved.json` maps each to its `COU` key), so a PR or description that
-names one needs no change. Write `COU` keys from now on.
-
-**Pull requests stay on GitHub**, and so do their reviews, checks and labels.
-GitHub's issues are not the swarm's any more: don't read the queue there,
-don't open issues there, and don't close or edit the ones that are left.
-Every open one was copied into Linear, and a work item copied from one
+names one needs no change. Write `COU` keys from now on. Every GitHub issue
+that was open then was copied into Linear, and a work item copied from one
 carries a link back to it.
 
+**Pull requests are on GitHub**, and so are their reviews, checks and labels.
+GitHub's issues are not the swarm's: don't read the queue there, don't open
+issues there, and don't close or edit any that are there.
+
 The tools read `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET` (README.md has
-the others). An agent without the tools uses Linear's GraphQL API
+the others, and the settings every name in this file comes from). An agent without the tools uses Linear's GraphQL API
 (`https://api.linear.app/graphql`, header `Authorization: Bearer <token>`, or
 the bare key for a personal one) or the Linear MCP server. A sandbox that
 can't reach Linear can review and fix pull requests, but takes no work item.
@@ -64,8 +66,8 @@ work out of Review but the owner, who moves it to Done when it passes, or back t
 Todo with a comment saying which criterion failed. Nothing takes work out of
 Needs Human but the owner either, who moves it on (to Backlog or Todo) once
 they have answered. Don't move a work item to Review or Done yourself (`submit` moves
-a technical design to Review, and a "Task breakdown" item to Done), or to Needs
-Human but with `needs-human`.
+a technical design to Review, and a "Task breakdown" item to Done), or to
+Needs Human but with `needs-human`.
 
 An item back in Todo from Review is not new work: what shipped stays, and you fix
 only what the owner's comment says failed, on a fresh branch, in a new PR that
@@ -75,9 +77,10 @@ what failed, ask with `needs-human` rather than guess.
 
 **Labels in Linear are in groups.** The swarm's are in two: `swarm-agent`,
 whose labels are the locks (`claude-1`, `codex-1`), and `swarm`
-(`task-breakdown`, `needs-ios-sim`, `blocked`, …). The product's are in `repo`,
-`area`, `platform` and `kind`. This file names a label by its group and name,
-as Linear's filters do: `repo/agent-runner`, `area/app`, `swarm/task-breakdown`.
+(`task-breakdown`, `needs-ios-sim`, `blocked`, …). The product's are in groups of
+their own: `repo`, and whatever else it sorts work by (`area`, `platform`).
+This file names a label by its group and name,
+as Linear's filters do: `repo/api`, `area/app`, `swarm/task-breakdown`.
 A lock is the exception: `claude-1` in `swarm-agent` is what GitHub calls
 `swarm/agent/claude-1`, and this file calls it that. Every group but `swarm`
 takes **one label per work item**: Linear refuses a second, so an item has one
@@ -110,21 +113,28 @@ chooses it: `codex`, `grok`, `claude-2`, `claude-1-scheduled`.
 
 ## The one rule
 
-**A `swarm/agent/<name>` label means that agent is working on this right
-now.** It is a lock, not ownership. Put yours on a work item or a pull request
-before you change anything for it, and take it off when your tick ends. While
-another agent's label is on something, don't touch it: no commits, no review,
-no new work for that item. Never remove another agent's label.
+**A lock means an agent is working on this right now.** It is not ownership.
+Take one on a work item or a pull request before you change anything for it
+(`agent.mjs claim <work item or PR>`; `next` takes it for the job it hands
+you), and release it when your tick ends (`release`, `more`, `finish`). While
+another agent's lock is on something, don't touch it: no commits, no review,
+no new work for that item. Never release another agent's lock.
 
-Once the label is off, the work is anyone's. Nothing here belongs to the
+A lock shows on the item as the label `swarm/agent/<name>`, so anyone looking
+at it can see who is on it, and an agent without the tools can take one by
+hand ("By hand"). The rest of this file says "label" and "lock" for the same
+thing.
+
+Once the lock is off, the work is anyone's. Nothing here belongs to the
 agent that started it: every session begins from the same work item, pull
 request and code, whatever its name, so whoever ticks next carries on where
 the last one stopped. That is why a tick must end with everything pushed and the PR
 saying what is done and what is left (see "When a tick ends").
 
-In Linear a work item takes one lock: adding yours while another agent's is on
-is refused, and the claim is lost (`claim` says so). On GitHub two can land at
-once; the tie-break is under "By hand".
+Two agents can ask for the same lock in the same moment. `claim` settles it
+and says which of you has it: on a work item the tracker refuses the second,
+and on a pull request the alphabetically first name keeps it ("By hand"). If
+`claim` says you lost, leave the item.
 
 **`swarm/hands-off` is the owner's.** On a work item or a pull request it means
 the owner is doing this one: leave it entirely alone, however stale or red it
@@ -144,8 +154,7 @@ over `swarm/pr` when a PR carries both.
 
 Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 `swarm` or `swarm-agent` group in Linear. Anything else on a work item or a PR
-(`repo/*`, `area/*`, `platform/*`, `kind/*`, `conflicts-with-main`,
-`changelog/none`) belongs to the product or CI.
+(`repo/*`, `area/*`, `conflicts-with-main`) belongs to the product or CI.
 
 | Label | Means | Who sets it |
 | --- | --- | --- |
@@ -153,9 +162,9 @@ Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 | `swarm/pr` | a PR the agents opened: theirs to review, fix and merge | the agent that opens it |
 | `swarm/review-only` | a person's PR the agents review, and the `reviewed` check gates, but never fix, continue or merge | the PR's author or the owner |
 | `swarm/focus` | a work item to take first, beside the sprint (see "Focus") | the owner only |
-| `swarm/task-breakdown` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "Task-breakdown ticks"); no tick builds it meanwhile | the owner only |
-| `swarm/design` | break it down, and design it in getcouchy/couchy-design: spec and wireframes (see "Task-breakdown ticks"); no tick builds it meanwhile | the owner only |
-| `swarm/tech-design` | write the technical design for a merged spec, with its proposed issue sequence (see "Architect ticks"); no tick builds it, and no task-breakdown tick takes it. It stays on: the design is done when the work item is (Done, once the design's PR merges) | the owner, or couchy-design's hand-off workflow when a spec merges |
+| `swarm/task-breakdown` | make this work item ready to build: scope, acceptance criteria, labels, blockers, slices (see "PM ticks"); no tick builds it meanwhile | the owner only |
+| `swarm/design` | break it down, and design it in getcouchy/couchy-design: spec and wireframes (see "PM ticks"); no tick builds it meanwhile | the owner only |
+| `swarm/tech-design` | write the technical design for a merged spec, with its proposed issue sequence (see "Architect ticks"); no tick builds it, and no pm tick takes it. It stays on: the design is done when the work item is (Done, once the design's PR merges) | the owner, or couchy-design's hand-off workflow when a spec merges |
 | `swarm/qa` | when its closing PR merges, the work item goes to Review, not Done (see "Where the work is") | an agent or the owner; only the owner removes it |
 | `swarm/blocked` | the work item waits on other work: an open blocker, for views to filter on; ask for the blockers yourself before taking work. Not the Needs Human state, which waits on a person | the sweep only; it takes off any it finds without an open blocker |
 | `swarm/needs-human` | on a PR: a real fork or a step only a person can take; pages the owner and holds the merge. A work item goes to the Needs Human state instead | an agent, after its comment |
@@ -164,24 +173,25 @@ Every label this protocol owns starts with `swarm/` on GitHub, and is in the
 | `swarm/needs-<thing>` | (any but `needs-human`) the work can't be checked without `<thing>` (see "What you may take"); the tools call it `swarm/needs/<thing>` | whoever writes the work item |
 | `swarm/desk` | marks the Agent desk work item | the sweep |
 
-Until 2026-11-12 these were `agent/<name>`, `focus`, `needs-human`,
-`merge/hold`, `needs/<thing>` and `agent-desk`, and until 2026-11-20
-`swarm/task-breakdown` was `swarm/groom`. The tools still read the old names,
-and the sweep renames any it finds, but write only the new ones. The sweep
-also moves a work item still labelled `swarm/needs-human` to Needs Human.
+Some of these had other names before: `needs-human` for `swarm/needs-human`, `merge/hold` for `swarm/hold`, `focus` for `swarm/focus`, `agent-desk` for `swarm/desk`, `swarm/groom` for `swarm/task-breakdown`, `agent/<name>` for `swarm/agent/<name>`, `needs/<name>` for `swarm/needs/<name>`. The tools still read the
+old names, and the sweep renames any it finds, but write only the new ones.
+The sweep moves a work item still labelled `swarm/needs-human` to Needs Human.
 
 ## The repositories
 
-The swarm works in **getcouchy/couchy** (the app and its API) and
-**getcouchy/couchy-agent** (the agent that runs beside ComfyUI). The same
-labels mean the same things in both, and both repositories' work is in
-COU. A work item for one is often blocked by one for the other: Linear's
-"blocked by" relation says so, or its description ("Blocked by COU-40").
+The swarm works in `getcouchy/couchy` and `getcouchy/couchy-agent`.
+**getcouchy/couchy** is the app and its API, and **getcouchy/couchy-agent** the
+agent that runs beside ComfyUI. Both repositories' work is in COU. Today
+getcouchy/couchy's ticks have it as their home.
+
+The same labels mean the same things in every repository the swarm works in. A
+work item for one is often blocked by one for another: Linear's "blocked by"
+relation says so, or its description ("Blocked by COU-40").
 
 A tick covers the repositories its scheduler gives it: the ones its prompt
 names, which with a token are `AGENT_REPOS` (comma-separated; the runner
 sets it from the tick's `repos` list; default: the repository you work in, then
-getcouchy/couchy-agent). The first is its **home repository**: its
+the others the settings list). The first is its **home repository**: its
 open `swarm/desk` work item belonging to it is the Agent desk your heartbeat
 goes on. Go through the steps below across all of them, taking the first step
 that applies anywhere before a later step somewhere else. A PR goes to the
@@ -189,7 +199,27 @@ repository its work item belongs to, and follows that repository's own
 `AGENTS.md` for the rest.
 
 A tick can reach only the repositories its sandbox was given. One it can't read
-it passes by. Today getcouchy/couchy's ticks have it as their home.
+it passes by.
+
+## Roles
+
+A tick runs as one role. Its prompt says which, and with the tools `AGENT_ROLE`
+does; a prompt that names none is a general tick.
+
+| Role | `AGENT_ROLE` | The prompt says | Does |
+| --- | --- | --- | --- |
+| **General** | unset, or `general` | "run your tick" | every step of "Your tick": fixes, merges, reviews, carries on and builds |
+| **Builder** | `builder` | "run your builder tick" | builds what is in focus, and reviews nothing ("Builder ticks") |
+| **PM** | `pm` | "run your pm tick" | breaks work down until an agent can build it, and builds nothing ("PM ticks") |
+| **Architect** | `architect` | "run your architect tick" | writes a feature's technical design, and builds nothing ("Architect ticks") |
+
+A prompt or a variable written before these names still works: "focus tick"
+and `focus` are the builder, "task-breakdown tick" or "shaping tick" and
+`task-breakdown` the pm, and "regular tick" the general one.
+
+A run that is handed one work item (a bug report, say) is not a role of its
+own. It follows a builder's rules for that item alone: it takes no other job,
+and whoever starts it says which item it is.
 
 ## Your tick
 
@@ -266,12 +296,12 @@ the top and do the next, until the tick ends (see "When a tick ends"):
    label, has no open sub-issues (it is split: take one of those, and see
    "Splitting a work item"), has no open blockers, and
    that you can take (see "What you may take") and that is not waiting for
-   a task-breakdown or architect tick (`swarm/task-breakdown`, `swarm/design` or `swarm/tech-design`), taken in the order "Focus"
+   a pm or architect tick (`swarm/task-breakdown`, `swarm/design` or `swarm/tech-design`), taken in the order "Focus"
    gives. Nothing outside focus is started. Lock it, read it with its
    comments (`agent.mjs show <key>`), then build it; one back from Review gets
    only the fix its feedback asks for (see "Where the work is"). A work item's blockers are the items Linear's
    "blocked by" relation names, and those its description names after
-   "Blocked by" (`COU-40`, an old key like `COUCHYUX-40`, or `#640` for the
+   "Blocked by" (`COU-40`, a key the item had before a move, or `#640` for the
    GitHub issue a work item was copied from); it is blocked while any of them
    is open. A GitHub issue that no work item was copied from was
    closed before the work moved, and blocks nothing. Before any of those,
@@ -371,9 +401,9 @@ Claude cloud session that can't reach Linear takes no work item and does
 only the pull request steps (1 to 4).
 
 - **Lock:** read the labels of the work item or PR. If it has a `swarm/agent/*`
-  label, leave it. Otherwise add yours (in Linear add the one label in the
-  `swarm-agent` group, `issueAddLabel`, rather than writing the whole list
-  back; if Linear refuses it, another agent's is on and you leave it), then
+  label, leave it. Otherwise add yours (add that one label, rather than
+  writing the item's whole list of labels back; if the tracker refuses it,
+  another agent's is on and you leave it), then
   **read the labels again**. If
   another agent's label appeared at the same moment, the alphabetically first
   name keeps it (`swarm/agent/claude` before `swarm/agent/claude-2` before
@@ -401,7 +431,7 @@ only the pull request steps (1 to 4).
   comment on the work item with why and what you learned. It goes back in the
   queue.
 - A lock is only for the length of a tick. The sweep removes any that has
-  been on for 90 minutes (`AGENT_CLAIM_MINUTES`), on a work item or a PR.
+  been on for 90 minutes (the settings' `sweep.claimMinutes`), on a work item or a PR.
 - New work you find goes into Linear as a work item in Backlog, never as a
   GitHub issue. The owner decides when it is ready.
 
@@ -411,7 +441,7 @@ only the pull request steps (1 to 4).
 PR.** Linear then shows what is done, what is being built and what is left; a
 list in a PR body or a comment doesn't. Whether to split is yours to decide,
 when you start the item or when you find part-way that it is too big. (A
-task-breakdown tick's slices are another thing: work items beside the one it
+pm tick's slices are another thing: work items beside the one it
 holds, waiting for the owner's approval.)
 
 **To split one you hold**, in Todo or In Progress:
@@ -581,9 +611,9 @@ owner plans the sprint, sets priorities, and adds or removes the label.
 ## Builder ticks
 
 Some scheduled tasks exist only to build what is in focus. Their prompt says
-"run your **focus tick** as `<name>`" (with the tool: `AGENT_ROLE=focus`).
+"run your **builder tick** as `<name>`" (with the tool: `AGENT_ROLE=builder`).
 A builder is an agent like any other, with a name and label of its own
-(`swarm/agent/codex-focus-1`), and everything in this file applies to it
+(`swarm/agent/codex-builder-1`), and everything in this file applies to it
 except the tick's steps, which for a builder are:
 
 1. **Fix a pull request in focus that needs it** (step 1, for PRs in focus).
@@ -598,11 +628,11 @@ the reviewing, and they review a PR that is in focus (it closes, or is part
 of, a work item in focus) before any other, so the builders' work merges without
 waiting behind the rest.
 
-## Task-breakdown ticks
+## PM ticks
 
-A task-breakdown tick makes work ready to build; it builds nothing. Its prompt
-says "run your **task-breakdown tick** as `<name>`" (with the tool:
-`AGENT_ROLE=task-breakdown`). It has a name and label of its own (`swarm/agent/claude-task-breakdown-1`) and, like
+A pm tick makes work ready to build; it builds nothing. Its prompt
+says "run your **pm tick** as `<name>`" (with the tool:
+`AGENT_ROLE=pm`). It has a name and label of its own (`swarm/agent/claude-pm-1`) and, like
 every tick, takes one job at a time until its time is spent: the work item
 it already holds, else the next one the owner labelled `swarm/task-breakdown`
 or `swarm/design` that is in Backlog or Todo, nobody holds, and is not
@@ -627,8 +657,7 @@ holds, in this shape:
   belongs to (`Part of COU-12`, a couchy-design spec by path);
 - `### Scope`: what to build, concretely enough to start on;
 - `### Not in this item`: what a reader might expect that belongs elsewhere;
-- `### Acceptance`: observable checks a reviewer can tick, citing any
-  `web-ergonomics` rules by number for web work;
+- `### Acceptance`: observable checks a reviewer can tick, citing any `web-ergonomics` rules by number for web work;
 - `### Verify`: how to show it works (the test, the smoke flow, the
   simulator flow);
 - `Blocked by COU-…` when something must land first, also set as a
@@ -716,7 +745,7 @@ changed, the slices, and the design PR),
 takes off `swarm/task-breakdown` or `swarm/design`, and your lock. With
 `--replaced-by` the item is Canceled as well, and with `--filed` it is Done and
 keeps its label (above). A breakdown that isn't finished when the tick ends stays locked until
-`finish`, keeps its label, and the next task-breakdown tick carries it on from the
+`finish`, keeps its label, and the next pm tick carries it on from the
 comments and the PR.
 
 ## Architect ticks
@@ -727,9 +756,9 @@ prompt says "run your **architect tick** as `<name>`" (with the tool:
 (`swarm/agent/claude-architect-1`) and takes one job at a time: the work item
 it already holds, else the next one the owner labelled `swarm/tech-design`
 that is in Backlog or Todo, nobody holds, and is not `swarm/hands-off`, in a
-task-breakdown tick's order. It reviews, fixes and merges nothing, and takes no other
+pm tick's order. It reviews, fixes and merges nothing, and takes no other
 job. While an item carries the label
-no tick builds it, and no task-breakdown tick takes it.
+no tick builds it, and no pm tick takes it.
 
 The label stays on when the design is written; the work item's state says how
 far it is. Linear moves it to In Progress when the design's pull request opens,
@@ -741,7 +770,7 @@ What it reads, what the technical design holds, and how it hands the work on
 are in [`ARCHITECT.md`](ARCHITECT.md), which only an architect tick needs to
 read. It files no work items: once the owner merges its design, couchy-design's
 hand-off workflow files "Task breakdown: <slug>", labelled `swarm/task-breakdown`, and a
-task-breakdown tick files the design's proposed issue sequence ("Task-breakdown ticks", "A merged technical design").
+pm tick files the design's proposed issue sequence ("PM ticks", "A merged technical design").
 [`LIFECYCLE.md`](LIFECYCLE.md) is the whole path a feature takes, from
 the idea to QA, and who checks what along it.
 
@@ -763,10 +792,11 @@ the idea to QA, and who checks what along it.
 
 ## What watches the agents
 
-A scheduled job runs `sweep.mjs` for a home repository. For getcouchy/couchy
-it is a CronJob on kube-1, every 10 minutes (that repository's `docs/ci.md`,
-"Agent sweep"), and getcouchy/couchy-agent has one of its own beside it. Each
-sweeps only its own repository's work items and pull requests. It removes a lapsed claim and settles a doubled one, keeps
+A scheduled job runs `sweep.mjs` for a home repository, every 10 minutes or so
+(README.md, "Running the housekeeping").
+For getcouchy/couchy it is a CronJob on kube-1 (that repository's `docs/ci.md`,
+"Agent sweep"), and getcouchy/couchy-agent has one of its own beside it.
+Each sweeps only its own repository's work items and pull requests. It removes a lapsed claim and settles a doubled one, keeps
 `swarm/blocked` on the open work items that have an open blocker, moves
 work items with their pull requests (In Progress from Todo, never Backlog, with
 a link while one is open, Review or Done once one that closes them merges, or
@@ -776,15 +806,15 @@ no agent has taken, a PR without a review, a failing PR its author left, a PR
 reviewed `ok` with auto-merge still off, one held with `swarm/hold` for a day, anything
 waiting on a person (a work item in Needs Human, a PR labelled `swarm/needs-human`;
 with the work items it holds up, those in focus marked), work waiting in Review, work waiting for a
-task-breakdown or architect tick, an agent that stopped ticking. A task-breakdown
+pm or architect tick, an agent that stopped ticking. A pm
 tick's lock on a Backlog item is expected; any other tick's is listed.
 
-Another job there runs `reviewed.mjs` every 2 minutes and posts the `reviewed`
+Another job runs `reviewed.mjs` every 2 minutes or so and posts the `reviewed`
 status ("Merging") on every open PR's head. A PR whose newest head has no
 `reviewed` status after a few minutes means that job is failing, not that the
 review is missing: say so in your heartbeat.
 
-`page.mjs` sends the page for `swarm/needs-human` on a PR. In getcouchy/couchy it is
-not running today (`docs/ci.md`, "Needs-human page"), so the label reaches the
-owner through the desk's "Needs you" list alone. Use it as this file says all
-the same.
+`page.mjs` sends the page for `swarm/needs-human` on a PR, where it is set up.
+Where it isn't, the label reaches the owner through the desk's "Needs you"
+list alone. Use it as this file says all the same.
+In getcouchy/couchy it is not running today (`docs/ci.md`, "Needs-human page").

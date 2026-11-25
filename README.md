@@ -4,6 +4,11 @@ The protocol and tools for the coding agents (Claude, Codex, Grok…) that work
 on the getcouchy repositories at once. [`PROTOCOL.md`](PROTOCOL.md) is the
 protocol; each repository's own `AGENTS.md` points here and adds its own rules.
 
+Nothing in the tools is particular to those repositories: which repositories,
+what the labels are called, how long a tick lasts and where the work items are
+come from one file, [`swarm.config.json`](swarm.config.json)
+("[Settings](#settings)").
+
 This repository is public on purpose: an agent's sandbox can clone it without
 being given access to it, so a tick needs access only to the repository it
 works in.
@@ -11,8 +16,8 @@ works in.
 The scripts at the top are the ones run by path: `agent.mjs` and `sweep.mjs`
 run the protocol, `reviewed.mjs` writes the `reviewed` status, `page.mjs`
 pages a person, and `bots.mjs` gives each agent a GitHub identity of its own.
-What they share is in `lib/`: the protocol's rules and tick (`rules.mjs`,
-`tick.mjs`), the work items in Linear (`linear.mjs`, behind `workitems.mjs`)
+What they share is in `lib/`: the settings (`config.mjs`), the protocol's rules
+and tick (`rules.mjs`, `tick.mjs`), the work items in Linear (`linear.mjs`, behind `workitems.mjs`)
 and the pull requests on GitHub (`github.mjs`). Tests are in `test/`:
 `npm test` (`node --test`, no dependencies).
 
@@ -32,20 +37,20 @@ it in `LINEAR_TOKEN_FILE` (default `$XDG_CACHE_HOME/swarm/linear-token.json`,
 or under `~/.cache`). `LINEAR_ACCESS_TOKEN`, a token minted elsewhere, or
 `LINEAR_API_KEY`, a personal key, does instead; with a personal key the swarm
 acts as that person. `LINEAR_TEAMS` (which team holds each repository's
-work, `owner/name=KEY` pairs; default `getcouchy/couchy=COU,getcouchy/couchy-agent=COU,getcouchy/agent-runner=COU`)
-`LINEAR_QA_STATE` (the state that work waits for the owner's QA in, default `Review`) and
-`LINEAR_NEEDS_HUMAN_STATE` (the state a work item waits on a person in,
-default `Needs Human`) are optional. A team's items belong to the first repository listed
+work, `owner/name=KEY` pairs),
+`LINEAR_QA_STATE` (the state that work waits for the owner's QA in) and
+`LINEAR_NEEDS_HUMAN_STATE` (the state a work item waits on a person in)
+are optional: each overrides the settings' `linear` for one run. A team's items belong to the first repository listed
 for it, unless a label in the `repo` group names another. The swarm's labels
 are in Linear's `swarm-agent` and `swarm` groups (PROTOCOL.md, "Where the
 work is"). `DRY_RUN=true` logs writes without making
 them. Linear allows an OAuth app 5,000 requests an hour; the tools wait out
 the limit rather than fail.
 
-`WORK_ITEMS` picks the tracker (default `linear`). Another tracker is a
+`WORK_ITEMS` picks the tracker (else the settings' `tracker`). Another tracker is a
 provider that implements the interface in `lib/workitems.mjs`, registered there.
 
-`moved.json` maps what items were called before the move to Linear (an old
+`moved.json` (the settings' `moved`) maps what items were called before the move to Linear (an old
 Plane key, `COUCHYUX-12`, or `owner/name#n` for the GitHub issue one was
 copied from) to their `COU` keys, so a PR body or description that names one
 still reaches the item.
@@ -59,7 +64,7 @@ released and the handoffs it made (each with its repository, number, `issue`
 or `pull` and title; a work item also with its `key`, its number being its
 sequence number in Linear, and `pulls`, the open pull requests that close it or
 are part of it; a pull request also with `workItem`, the key its body closes or
-is part of), and the GitHub requests left on the token. A regular tick's `next`
+is part of), and the GitHub requests left on the token. A general tick's `next`
 and `more` lines also carry `queue`, the items it could have started (its size
 and the first 20, best first, with priority and how many open items each
 unblocks), and `rank`, where the job offered stood in it; a `more` line has
@@ -84,6 +89,60 @@ A change to these tools changes what guards a merge in every repository that
 uses them, so a PR here follows PROTOCOL.md, "The exceptions", like one that
 touches a required check.
 
+## Settings
+
+[`swarm.config.json`](swarm.config.json) is this deployment's settings, and
+[`lib/config.mjs`](lib/config.mjs) lists every one with its default. The rules
+and every tool read their names and numbers from it, and the documents an agent
+reads (`PROTOCOL.md`, `TICK.md`, `ARCHITECT.md`) are rendered from it, so the
+two can't disagree.
+
+| Setting | What it is |
+| --- | --- |
+| `name`, `owner`, `toolsRepo` | what a page and the documents call the swarm, its owner and this repository |
+| `repos` | the repositories the swarm works in, the home repository first |
+| `designRepo` | where specs and technical designs are written |
+| `baseBranch` | the branch pull requests merge into |
+| `labels.namespace`, `labels.names` | the prefix of every label the protocol owns (`swarm/`), and another name for any one of them |
+| `labels.conflict`, `review.status` | the label CI puts on a conflicting PR, and the commit status `reviewed.mjs` writes |
+| `labels.aliases` | names labels had before, which are still read and which the sweep renames |
+| `merge.method` | how auto-merge merges: `squash`, `merge` or `rebase` |
+| `qa.labels`, `qa.skipLabels` | which work goes to the owner's QA when it merges: any with one of the first, or with none of the second |
+| `tick` | a tick's limit and ceiling, in minutes |
+| `sweep` | when the sweep frees a lock and reports what is overdue |
+| `bots` | the prefix of each agent's GitHub App, its org, and the first word of its sandbox's variables |
+| `tracker`, `linear` | where the work items are; for Linear, each repository's team, the state names and the label groups |
+| `moved`, `notes` | a file of what moved work items used to be called, and a directory of this deployment's own paragraphs for the documents |
+
+The file is the one beside the tools, or the one `SWARM_CONFIG` names. It is
+never read from the checkout a tick works in: a pull request must not be able
+to change the rules that guard its own merge. A setting that is misspelt or
+makes no sense stops every tool with what is wrong. With no file at all the
+defaults apply and nothing names a repository, so `GITHUB_REPOSITORY` and
+`LINEAR_TEAMS` must.
+
+What stays in the environment is each tick's own (`AGENT_NAME`, `AGENT_ROLE`,
+`AGENT_CAN`, `AGENT_TICK_MINUTES`, `AGENT_TICK_CEILING`), every credential, and
+the overrides named above; where a variable and the file both say, the variable
+wins.
+
+**The documents are rendered.** `templates/` holds `PROTOCOL.md`, `TICK.md` and
+`ARCHITECT.md` with `{{…}}` where a setting goes, and `notes/` holds what only
+this deployment says (its repositories, where its sweep runs). After changing
+a template, a note or the settings:
+
+```sh
+npm run docs     # writes the three documents; commit them with the change
+```
+
+`npm test` fails while a document is not what its template renders to.
+`node render.mjs --print PROTOCOL.md` prints one for the settings in use, for a
+deployment whose `SWARM_CONFIG` is elsewhere.
+
+**To use the swarm for other repositories**, fork this repository (or point
+`SWARM_CONFIG` at a file of your own), write your `swarm.config.json`, empty
+`notes/` of what is said there about this one, and run `npm run docs`.
+
 ## Running the housekeeping
 
 `reviewed.mjs` needs only a GitHub token and the API, and `sweep.mjs` that and
@@ -106,7 +165,8 @@ dashboard and alerts in place of reading the Agent desk:
 ## A GitHub identity per agent
 
 Every agent name (`codex`, `grok`, `claude-2`…) can get its own private GitHub App
-in the org, named `couchy-<name>`. The agent then pushes, opens PRs, comments,
+in the org, named `couchy-<name>`: the settings' `bots` give the prefix
+(`couchy-`), the org, and the first word of the variables below (`COUCHY`). The agent then pushes, opens PRs, comments,
 labels and reviews as **`couchy-<name>[bot]`**, and its commits link to that bot,
 so the history and every thread say which agent did what.
 

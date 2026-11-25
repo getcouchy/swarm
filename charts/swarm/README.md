@@ -73,7 +73,8 @@ the organization permission Projects write. Install it on the repository in
 on any private repository a job names as its `source`, and generate a private
 key.
 
-Don't name the App `couchy-<something>`: the agent rules read
+Don't name the App with the prefix the agents' own apps have (the settings'
+`bots.prefix`; here `couchy-<something>`): the agent rules read
 `couchy-<name>[bot]` as an agent's own bot (`agentFromLogin` in
 [`lib/rules.mjs`](../../lib/rules.mjs)), and its reviews would count as an agent's.
 
