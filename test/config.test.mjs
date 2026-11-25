@@ -86,7 +86,17 @@ test('config: the tools read another deployment\'s settings', () => {
   const script = `
     const r = await import(${JSON.stringify(join(root, 'lib/rules.mjs'))});
     const l = await import(${JSON.stringify(join(root, 'lib/linear.mjs'))});
+    const p = await import(${JSON.stringify(join(root, 'lib/preflight.mjs'))});
     const pr = (labels) => ({ labels: labels.map((name) => ({ name })) });
+    // What a checkout that was left alone is told, for each thing it can be.
+    const left = { branch: 'codex/x', dirty: [] };
+    const open = (labels) => [{ number: 50, title: 'PR', head: { ref: 'codex/x' }, ...pr(labels) }];
+    const advice = [
+      p.likelyWork(left, { me: 'codex', pulls: open(['bots/pr']) }),
+      p.likelyWork(left, { me: 'codex', pulls: open(['bots/pr', 'bots/agent/grok']) }),
+      p.likelyWork({ ...left, dirty: ['a.go'] }, { me: 'codex' }),
+      p.likelyWork(left, { me: 'codex' }),
+    ].map((w) => w.advice);
     console.log(JSON.stringify({
       hold: r.HOLD, lock: r.AGENT_PREFIX, base: r.BASE_BRANCH,
       holders: r.providers(pr(['bots/agent/codex', 'bot/claude', 'swarm/agent/grok'])),
@@ -95,6 +105,7 @@ test('config: the tools read another deployment\'s settings', () => {
       qa: [r.needsQA(pr(['ui'])), r.needsQA(pr([]))],
       place: l.linearPlace('bots/agent/codex'), name: l.protocolName({ name: 'needs-sim', parent: { name: 'bots' } }),
       teams: l.DEFAULT_TEAMS,
+      advice: advice.map((a) => [/\\bmain\\b/.test(a), a.match(/(?:origin\\/|clean |never to )trunk/g)]),
     }));`;
   const run = spawnSync(process.execPath, ['--input-type=module', '-e', script], { env: { PATH: process.env.PATH, SWARM_CONFIG: file }, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
@@ -106,6 +117,13 @@ test('config: the tools read another deployment\'s settings', () => {
     qa: [true, true], // no label skips QA here, so everything is walked
     place: { group: 'bots-agent', child: 'codex' }, name: 'bots/needs/sim',
     teams: 'acme/app=APP,acme/api=API',
+    // Every way back to a clean checkout names this deployment's branch, never `main`.
+    advice: [
+      [false, ['clean trunk']],
+      [false, ['origin/trunk']],
+      [false, ['origin/trunk']],
+      [false, ['never to trunk', 'clean trunk', 'origin/trunk']],
+    ],
   });
 });
 
@@ -154,6 +172,14 @@ test('render: every document renders for the defaults and for another deployment
   assert.match(theirs, /QA when it carries `bots\/qa`, `ui`; the settings\nname no label that skips it, so every item does\./);
   assert.match(theirs, /`on-hold` for `bots\/wait`, `bot\/<name>` for `bots\/agent\/<name>`/);
   assert.match(theirs, /`origin\/trunk`/);
+  assert.match(theirs, /`features\/<slug>\/tech-design\.md` on `trunk`/);
+  assert.match(renderDocument('ARCHITECT.md', resolveConfig({ ...acme, notes: null })), /\*\*The spec and its wireframes\*\*, on .*'s `trunk`\./);
+  // The one `main` left is the tools' own repository's, which every command runs a copy of
+  // (`conflicts-with-main` is a label's name, with a setting of its own).
+  for (const doc of DOCUMENTS) {
+    const lines = renderDocument(doc, resolveConfig({ ...acme, notes: null })).split('\n').filter((l) => /(?<![\w-])main\b/.test(l));
+    assert.deepEqual(lines.filter((l) => !/`origin\/main`'s copy of the tools/.test(l)), [], `${doc}: \`main\` where the base branch goes`);
+  }
   assert.match(theirs, /off after 120 minutes/);
   assert.deepEqual(Object.keys(vars(resolveConfig())).filter((k) => k.startsWith('l.')).length, Object.keys(LABEL_NAMES).length);
 });

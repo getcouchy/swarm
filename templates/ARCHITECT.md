@@ -50,7 +50,7 @@ As [`TICK.md`](TICK.md) says, and also:
 
 1. **The work item**: `agent.mjs show <key>`, then `agent.mjs images <key>`.
    It names the spec.
-2. **The spec and its wireframes**, on {{design.name}}'s `main`. A spec that is
+2. **The spec and its wireframes**, on {{design.name}}'s `{{base}}`. A spec that is
    not `Ready` is not yours to design from: say so on the work item with
    `agent.mjs needs-human <key> "<what is missing>"` and take the next job.
 3. **The code the feature touches**, and the code beside it. Find how the

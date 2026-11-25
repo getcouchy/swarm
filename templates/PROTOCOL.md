@@ -695,7 +695,7 @@ Don't create work outside the item you hold.
 {{design.name}}'s hand-off workflow files when the owner merges a design, and its
 `{{l.taskBreakdown}}` asks you to file the design's work items. Clone
 {{design}} beside your checkout and open
-`features/<slug>/tech-design.md` on `main` (the description names it). The
+`features/<slug>/tech-design.md` on `{{base}}` (the description names it). The
 "Technical design" work item is done: leave it as it is. Its "Proposed issue sequence" is already cut and written by the
 architect: you copy it, you don't redesign it. For each entry, in order:
 
