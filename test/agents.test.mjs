@@ -356,6 +356,28 @@ test('a lock on a pull request that has merged comes off: at the end of the tick
   assert.equal(locks.some((l) => l.number === 49), false);
 });
 
+test('sweep: a lock with no event saying when it went on counts from when its item was made', async () => {
+  // Linear folds a label added in an item's first moments into its creation: a sub-issue an agent
+  // creates and claims at once has a lock and no "labeled" event. That is not a lock older than any tick.
+  const gh = fake({
+    issues: [
+      issue(1, ['couchy-ux/approved', 'swarm/agent/claude-1'], { created_at: ago(1 / 60) }), // made and claimed a minute ago
+      issue(2, ['couchy-ux/approved', 'swarm/agent/builder-1'], { created_at: ago(1.4) }), // 84 minutes ago: within a tick
+      issue(3, ['couchy-ux/approved', 'swarm/agent/grok'], { created_at: ago(3) }), // older than a lock may be
+      issue(4, ['couchy-ux/approved', 'swarm/agent/codex'], { created_at: ago(100) }), // an old item, locked 10 minutes ago
+    ],
+    pulls: [pull(50, ['swarm/pr', 'swarm/agent/claude-2'], { created_at: ago(0.1), draft: true })], // opened and locked just now
+    events: { 4: [{ event: 'labeled', label: { name: 'swarm/agent/codex' }, created_at: ago(1 / 6) }] },
+  });
+  const result = await sweep(gh, { now: NOW, limits: LIMITS });
+  assert.deepEqual(gh.log, ['remove 3 swarm/agent/grok'], gh.log.join());
+  assert.deepEqual(result.fixed, ["#3: grok's lock had been on for over 90 minutes; removed."]);
+  assert.deepEqual(result.fixedCounts, { lock_lapsed: 1, lock_doubled: 0 });
+  assert.deepEqual(Object.fromEntries(result.locks.map((l) => [`${l.type}:${l.number}:${l.agent}`, l.since])), {
+    'issue:1:claude-1': ago(1 / 60), 'issue:2:builder-1': ago(1.4), 'issue:4:codex': ago(1 / 6), 'pull:50:claude-2': ago(0.1),
+  }, 'an event wins over the item\'s age; with none, the lock is as old as the item');
+});
+
 test('sweep: takes off locks that outlived a tick, settles doubled ones, reports the rest', async () => {
   const labeled = (name, h) => ({ event: 'labeled', label: { name }, created_at: ago(h) });
   const gh = fake({

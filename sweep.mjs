@@ -162,7 +162,10 @@ export async function sweep(gh, { now = Date.now(), limits }) {
   for (const item of [...issues, ...pulls].filter((i) => providers(i).length)) {
     const events = await gh.events(item.number);
     for (const holder of providers(item)) {
-      const lockedAt = lastLabeled(events, (n) => n === AGENT_PREFIX + holder);
+      // The item's history doesn't always say when: a tracker can fold what happens in an item's first
+      // moments into its creation (Linear records no "label added" for a sub-issue an agent creates and
+      // claims at once). A lock can't be older than what it is on, so with no event it counts from there.
+      const lockedAt = lastLabeled(events, (n) => n === AGENT_PREFIX + holder) ?? item.created_at ?? null;
       if (!lockLapsed({ lockedAt, now, minutes: limits.claim })) {
         locks.push({ number: item.number, agent: holder, type: typeOf(item), since: lockedAt });
         continue;
