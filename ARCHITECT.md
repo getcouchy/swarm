@@ -161,7 +161,7 @@ of it matter most here:
   called "the dead parent" or "the open rule" tells them nothing. Name each
   package on the card by what changes, in words the spec or the app's screen
   already uses.
-- **Each entry of the issue sequence is read alone.** A task-breakdown tick
+- **Each entry of the issue sequence is read alone.** A pm tick
   files it as a work item, and its builder sees that entry and the contracts
   it names: not "Patterns", and not the other entries. A term, a rule number
   or another package's number the entry uses is explained in the entry.

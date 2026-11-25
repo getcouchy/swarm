@@ -150,6 +150,24 @@ in it waits for an answer.
 
 **As built.** Left empty. It is filled in when the last package ships.
 
+### How it reads
+
+{{design.name}}'s `AGENTS.md`, "Writing", holds for the whole design. Two parts
+of it matter most here:
+
+- **The owner reads the plan card, and was not in your run.** A package
+  called "the dead parent" or "the open rule" tells them nothing. Name each
+  package on the card by what changes, in words the spec or the app's screen
+  already uses.
+- **Each entry of the issue sequence is read alone.** A pm tick
+  files it as a work item, and its builder sees that entry and the contracts
+  it names: not "Patterns", and not the other entries. A term, a rule number
+  or another package's number the entry uses is explained in the entry.
+
+Before you open the pull request, read the card, then each entry's title and
+goal paragraph, as someone who has read the spec and nothing else. Rewrite
+whatever makes you stop to work out what a phrase stands for.
+
 ### What you may not decide
 
 - **What the person sees.** You do not change a screen, a state or a word.
