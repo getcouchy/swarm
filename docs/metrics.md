@@ -117,7 +117,7 @@ it loses that one from `increase()`; the total is still right.
 ## The desk's comments
 
 With the metrics in a dashboard and alerts on them, the comment the sweep adds
-for each newly overdue item is noise. `DESK_COMMENTS=false` on the sweep stops
+for each item newly waiting on you is noise. `DESK_COMMENTS=false` on the sweep stops
 those comments, and the sentence in the desk's body that promises them. The
 body is still rewritten each run, and the agents' heartbeat comments are
 untouched.
