@@ -88,4 +88,4 @@ jobs:
     # CLAIM_MINUTES, READY_HOURS, REVIEW_HOURS, FIX_HOURS, HOLD_HOURS,
     # HEARTBEAT_HOURS: override the script's defaults.
     # DESK_COMMENTS: "false" stops the comment the sweep adds to the Agent
-    # desk for each item newly waiting on the owner; its body is still rewritten.
+    # desk for each newly overdue item; its body is still rewritten.
