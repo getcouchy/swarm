@@ -9,8 +9,8 @@
 //   - moves work items with their pull requests: In Progress, with a link to
 //     the PR, while one is open, and Done once one that closes them merges;
 //   - rewrites the "Agent desk" work item with everything else that is
-//     overdue, and comments there once for each newly overdue item, so
-//     watching that one item is enough.
+//     overdue, and comments there once for each item newly waiting on the
+//     owner, so watching that one item is enough.
 //
 // It ends by pushing what it found as Prometheus metrics (docs/metrics.md)
 // when SWARM_PUSHGATEWAY_URL is set.
@@ -99,6 +99,10 @@ export async function moveHandedOff(gh, issues) {
 }
 
 const STATE = /<!-- agent-desk-state: (.*?) -->/s;
+const RECENT = /<!-- swarm-recent: (.*?) -->/s;
+// The desk comments only for what waits on the owner; the rest is listed in its body.
+const ANNOUNCED = new Set(['human', 'qa', 'quiet', 'hold', 'held', 'unapproved']);
+const REMEMBER_HOURS = 24;
 
 // An event keeps the name its label had at the time, so old names are read as today's.
 /**
@@ -505,11 +509,11 @@ export function countLabelled(prev, labelled) {
   return next;
 }
 
-export function deskBody(overdue, now, counters, { comments = true, linked = [] } = {}) {
+export function deskBody(overdue, now, counters, { comments = true, linked = [], recent = {} } = {}) {
   const sections = [...new Set(overdue.map((o) => o.section))];
   return [
     'What the agents (Claude, Codex, Grok…) are behind on, rewritten by every run of the Agent sweep (see `PROTOCOL.md` in ' + (config.toolsRepo ?? 'the swarm\'s tools') + '). ' +
-      (comments ? 'A comment is added once for each newly overdue item, so subscribing to this work item is enough. ' : '') +
+      (comments ? 'A comment is added once for each item newly waiting on you (it needs you, waits for your review, holds a merge, or an agent stopped ticking), so subscribing to this work item is enough. ' : '') +
       'The comments that say "last ticked" are the agents\' heartbeats; they edit their own.',
     '',
     ...(overdue.length
@@ -520,6 +524,7 @@ export function deskBody(overdue, now, counters, { comments = true, linked = [] 
     `<!-- agent-desk-state: ${JSON.stringify(overdue.map((o) => o.key).sort())} -->`,
     ...(counters ? [`<!-- swarm-counters: ${JSON.stringify(counters)} -->`] : []),
     ...(linked.length ? [`<!-- swarm-linked: ${JSON.stringify(linked)} -->`] : []),
+    ...(Object.keys(recent).length ? [`<!-- swarm-recent: ${JSON.stringify(recent)} -->`] : []),
   ].join('\n');
 }
 
@@ -531,19 +536,25 @@ export function deskBody(overdue, now, counters, { comments = true, linked = [] 
 export async function writeDesk(gh, { desk, stateComment = null, overdue, fixed, labelled = { needsHuman: [], hold: [] }, linked = [], now = Date.now(), comments = true }) {
   const stored = deskState(desk, stateComment);
   const counters = countLabelled(readCounters(stored), labelled);
-  const body = deskBody(overdue, now, counters, { comments, linked });
+  const read = (re, empty) => {
+    try {
+      return JSON.parse(re.exec(stored)?.[1] ?? empty);
+    } catch {
+      return JSON.parse(empty); // someone edited it by hand; treat everything as new
+    }
+  };
+  const seen = read(STATE, '[]');
+  // When each item was last overdue, kept a day: one that drops off for a run or two isn't announced again.
+  const recent = Object.fromEntries(Object.entries(read(RECENT, '{}')).filter(([, at]) => hoursSince(at, now) < REMEMBER_HOURS));
+  const fresh = overdue.filter((o) => ANNOUNCED.has(o.key.split(':')[0]) && !seen.includes(o.key) && !(o.key in recent));
+  for (const o of overdue) recent[o.key] = new Date(now).toISOString();
+  const body = deskBody(overdue, now, counters, { comments, linked, recent });
   // On a work item the markers go in a comment of their own; a GitHub issue keeps them in its body.
   const workItem = Boolean(gh.findIssue);
   const lines = body.split('\n');
   const shown = workItem ? lines.filter((l) => !isMarker(l)).join('\n').trimEnd() : body;
   const state = ['The Agent sweep reads this back on its next run; don\'t edit it.', '', ...lines.filter(isMarker)].join('\n');
-  let seen = [];
   if (desk) {
-    try {
-      seen = JSON.parse(STATE.exec(stored)?.[1] ?? '[]');
-    } catch {
-      seen = []; // someone edited the body by hand; treat everything as new
-    }
     await gh.editIssue(desk.number, { body: shown });
   } else {
     desk = await gh.createIssue('Agent desk', shown, [DESK]);
@@ -553,7 +564,6 @@ export async function writeDesk(gh, { desk, stateComment = null, overdue, fixed,
     if (stateComment) await gh.editComment(stateComment.id, state);
     else await gh.comment(desk.number, state);
   }
-  const fresh = overdue.filter((o) => !seen.includes(o.key));
   if (comments && (fresh.length || fixed.length)) {
     await gh.comment(desk.number, [
       ...(fresh.length ? ['Newly overdue:', '', ...fresh.map((o) => `- ${o.line}`), ''] : []),

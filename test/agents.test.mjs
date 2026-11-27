@@ -620,6 +620,24 @@ test('desk: nothing new means no comment; an empty desk says so', async () => {
   assert.deepEqual(fresh.log, ['create Agent desk', 'comment 999']);
 });
 
+test('desk: comments only for what waits on the owner, and not again for an item back within a day', async () => {
+  const human = { section: 'Needs you', key: 'human:7', line: '#7 x' };
+  const ready = { section: 'Waiting for an agent', key: 'ready:4', line: '#4 ready' };
+  const gh = fake({ issues: [issue(90, ['swarm/desk'], { body: '' })] });
+  const run = async (overdue, hours) => {
+    gh.log.length = 0;
+    await writeDesk(gh, { desk: await gh.issue(90), overdue, fixed: [], now: NOW + hours * 3600_000 });
+    return gh.log;
+  };
+  assert.deepEqual(await run([ready], 0), ['edit 90'], 'the ready queue is listed, not announced');
+  assert.deepEqual(await run([human, ready], 1), ['edit 90', 'comment 90']);
+  assert.doesNotMatch((await gh.comments(90)).at(-1).body, /#4/);
+  assert.deepEqual(await run([], 2), ['edit 90']);
+  assert.deepEqual(await run([human], 3), ['edit 90'], 'off the desk for a run: still remembered');
+  assert.deepEqual(await run([], 4), ['edit 90']);
+  assert.deepEqual(await run([human], 28), ['edit 90', 'comment 90'], 'gone for over a day: new again');
+});
+
 test('a tick goes on to the next job until its time is spent', async () => {
   const at = (min) => ({ startedAt: new Date(NOW - min * 60_000).toISOString(), now: NOW });
   assert.deepEqual(mayContinue(at(5)), { ok: true, left: 40 });
