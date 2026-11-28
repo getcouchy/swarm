@@ -101,7 +101,8 @@ export async function moveHandedOff(gh, issues) {
 const STATE = /<!-- agent-desk-state: (.*?) -->/s;
 const RECENT = /<!-- swarm-recent: (.*?) -->/s;
 // The desk comments only for what waits on the owner; the rest is listed in its body.
-const ANNOUNCED = new Set(['human', 'qa', 'quiet', 'hold', 'held', 'unapproved']);
+// Not `qa`: every merge that needs QA lands there, and the Review state is already its queue.
+const ANNOUNCED = new Set(['human', 'quiet', 'hold', 'held', 'unapproved']);
 const REMEMBER_HOURS = 24;
 
 // An event keeps the name its label had at the time, so old names are read as today's.
@@ -513,7 +514,7 @@ export function deskBody(overdue, now, counters, { comments = true, linked = [],
   const sections = [...new Set(overdue.map((o) => o.section))];
   return [
     'What the agents (Claude, Codex, Grok…) are behind on, rewritten by every run of the Agent sweep (see `PROTOCOL.md` in ' + (config.toolsRepo ?? 'the swarm\'s tools') + '). ' +
-      (comments ? 'A comment is added once for each item newly waiting on you (it needs you, waits for your review, holds a merge, or an agent stopped ticking), so subscribing to this work item is enough. ' : '') +
+      (comments ? 'A comment is added once for each item newly waiting on you (it needs you, holds a merge, or an agent stopped ticking), so subscribing to this work item is enough. ' : '') +
       'The comments that say "last ticked" are the agents\' heartbeats; they edit their own.',
     '',
     ...(overdue.length

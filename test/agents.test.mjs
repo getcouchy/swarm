@@ -638,6 +638,14 @@ test('desk: comments only for what waits on the owner, and not again for an item
   assert.deepEqual(await run([human], 28), ['edit 90', 'comment 90'], 'gone for over a day: new again');
 });
 
+test('desk: merged work in Review is listed, not announced', async () => {
+  const qa = { section: 'Waiting for your review', key: 'qa:5', line: '#5 merged' };
+  const gh = fake({ issues: [issue(90, ['swarm/desk'], { body: '' })] });
+  await writeDesk(gh, { desk: await gh.issue(90), overdue: [qa], fixed: [], now: NOW });
+  assert.deepEqual(gh.log, ['edit 90'], 'every merge that needs QA would otherwise be a notification');
+  assert.match((await gh.issue(90)).body, /#5 merged/);
+});
+
 test('a tick goes on to the next job until its time is spent', async () => {
   const at = (min) => ({ startedAt: new Date(NOW - min * 60_000).toISOString(), now: NOW });
   assert.deepEqual(mayContinue(at(5)), { ok: true, left: 40 });
